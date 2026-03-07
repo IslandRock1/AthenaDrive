@@ -1,32 +1,35 @@
 #include <stdio.h>
-
+#include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
 #include "I2CManager.hpp"
+#include "ContinuousADC.hpp"
 
-#define SDA GPIO_NUM_11
-#define SCL GPIO_NUM_12
-
-#define LED_GPIO GPIO_NUM_2
-
-extern "C" void app_main()
+extern "C" void app_main(void)
 {
-    I2CManager i2cManager(SDA, SCL);
-    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    ContinuousADC continuousAdc;
 
-    while(true)
-    {
+    uint32_t numReadings = 0;
+    int64_t startTime = esp_timer_get_time();
 
-        gpio_set_level(LED_GPIO, 1);
-        i2cManager.writePin(14, 1);
-        // vTaskDelay(pdMS_TO_TICKS(500));
+    while (1) {
+        
+        int phaseA;
+        int phaseB;
+        int phaseC;
 
-        gpio_set_level(LED_GPIO, 0);
-        i2cManager.writePin(14, 0);
-        // vTaskDelay(pdMS_TO_TICKS(500));
+        continuousAdc.getReading(phaseA, phaseB, phaseC);
+        numReadings++;
 
-        printf("Voltage: %li mV | Current: %li mA\n", i2cManager.getBusVoltage_mV(), i2cManager.getCurrent_mA());
+        int64_t timeNow = esp_timer_get_time();
+        if (timeNow - startTime > 1000000) {
+            printf("Num readings: %li | Time: %lli us. Phases: %i, %i, %i.\n", numReadings, (timeNow - startTime), phaseA, phaseB, phaseC);
+            startTime = timeNow;
+            numReadings = 0;
+        }
+        
     }
 }
