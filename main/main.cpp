@@ -38,10 +38,6 @@ extern "C" void app_main()
         i2c_new_master_bus(&bus_config, &bus)
     );
 
-    // -------------------------
-    // Devices
-    // -------------------------
-
     Multiplexer mcp(bus, 0x20, 100000);
 
     INA226 currentSensor(bus, 0x40, 100000);
