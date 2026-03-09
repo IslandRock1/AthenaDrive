@@ -1,0 +1,16 @@
+#pragma once
+
+class PID_Reg {
+public:
+    PID_Reg(float kp, float ki, float kd);
+
+    void setSetpoint(float sp);
+    float update(float currVal, float dt);
+
+private:
+    float _kp, _ki, _kd;
+    float _setpoint = 0.0;
+    float _integral = 0.0;
+    float _prevError = 0.0;
+    bool _firstRun = true;
+};

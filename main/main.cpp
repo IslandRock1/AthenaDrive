@@ -7,10 +7,15 @@
 #include "driver/gpio.h"
 #include "I2CManager.hpp"
 #include "ContinuousADC.hpp"
+#include "PID.hpp"
 
 extern "C" void app_main(void)
 {
     ContinuousADC continuousAdc;
+
+    PID_Reg pid{1, 0, 0};
+    float value = pid.update(1, 1);
+    printf("PID value: %lf \n", value);
 
     uint32_t numReadings = 0;
     int64_t startTime = esp_timer_get_time();
