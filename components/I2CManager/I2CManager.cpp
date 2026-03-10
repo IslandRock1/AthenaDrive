@@ -30,8 +30,8 @@ I2CManager::I2CManager(gpio_num_t sda, gpio_num_t scl) {
     _multiplexer.begin(bus, 0x20, 100000);
     // Should probably not hardcode this.
     // 0 => Output | 1 => Input | x => Don't care
-    //                xxxxxxx011100000
-    _multiplexer.setPortMode(0b0000000011100000);
+    //                         000001110xxxxxxx
+    _multiplexer.setPortMode(0b0000011100000001);
 }
 
 bool I2CManager::readPin(int pin) {
