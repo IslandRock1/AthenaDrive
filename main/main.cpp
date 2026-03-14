@@ -1,5 +1,6 @@
 #include "drv8323.h"
 #include "drv8323_regs.h"
+#include "as5048a.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -12,7 +13,8 @@ static const char *TAG = "main";
 #define PIN_MOSI    GPIO_NUM_47
 #define PIN_MISO    GPIO_NUM_21
 #define PIN_SCLK    GPIO_NUM_14
-#define PIN_CS      GPIO_NUM_48
+#define PIN_DRV_CS  GPIO_NUM_48
+#define PIN_ENC_CS  GPIO_NUM_13
 #define PIN_ENABLE  GPIO_NUM_NC
  
 /* SPI clock: datasheet max is ~10 MHz; 1 MHz is safe for bring-up */
@@ -85,13 +87,10 @@ extern "C" void app_main(void)
     manager.writePin(14, true); // Led
     manager.writePin(15, true); // Led
 
-    gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_NUM_13, true); // Chip select encoder HIGH
-
     int32_t voltage = manager.getBusVoltage_mV();
     printf("Bus voltage: %li mV\n", voltage);
 
-    ESP_LOGI(TAG, "DRV8323S SPI demo – starting");
+    ESP_LOGI(TAG, "DRV8323S SPI demo - starting");
  
     /* Build configuration */
     drv8323_config_t cfg = {
@@ -99,7 +98,7 @@ extern "C" void app_main(void)
         .mosi         = PIN_MOSI,
         .miso         = PIN_MISO,
         .sclk         = PIN_SCLK,
-        .cs           = PIN_CS,
+        .cs           = PIN_DRV_CS,
         .enable       = PIN_ENABLE,
         .spi_clock_hz = SPI_CLK_HZ,
     };
@@ -111,16 +110,17 @@ extern "C" void app_main(void)
         return;
     }
  
+    as5048a_handle_t enc = NULL;
+    err = as5048a_init(SPI2_HOST, PIN_ENC_CS, SPI_CLK_HZ, &enc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "as5048a_init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
     /* Enable the DRV (pull ENABLE high) */
     drv8323_enable(dev, true);
- 
-    /* Wait for the DRV to come out of reset / charge pump to settle */
     vTaskDelay(pdMS_TO_TICKS(10));
- 
-    /* Clear any latched faults from power-up */
     drv8323_clear_faults(dev);
- 
-    /* Print initial fault state */
     drv8323_print_faults(dev);
  
     /* Dump all registers before configuration */
@@ -136,25 +136,33 @@ extern "C" void app_main(void)
     /* Dump all registers after configuration */
     ESP_LOGI(TAG, "--- After configuration ---");
     dump_all_registers(dev);
- 
-    gpio_set_direction(GPIO_NUM_1, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_42, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_41, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_40, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_39, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_38, GPIO_MODE_OUTPUT);
 
-    gpio_set_level(GPIO_NUM_1, true);
-    gpio_set_level(GPIO_NUM_42, false);
-    gpio_set_level(GPIO_NUM_41, false);
-    gpio_set_level(GPIO_NUM_40, false);
-    gpio_set_level(GPIO_NUM_39, false);
-    gpio_set_level(GPIO_NUM_38, true);
+    ESP_LOGI(TAG, "AS5048A encoder - starting");
+ 
+    /* Give the encoder a moment after power-up (startup time ≤10 ms) */
+    vTaskDelay(pdMS_TO_TICKS(15));
+ 
+    /* Clear any spurious error flags from startup */
+    as5048a_clear_error(enc);
+ 
+    /* Check diagnostics – confirms magnet is present and field is in range */
+    as5048a_print_diagnostics(enc);
 
 
     /* Periodic fault monitoring loop */
-    ESP_LOGI(TAG, "Entering monitoring loop (fault check every 1 s)...");
+    ESP_LOGI(TAG, "Entering monitoring loop...");
     while (true) {
+        float angle_deg = 0.0f;
+        err = as5048a_read_angle_deg(enc, &angle_deg);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Angle: %.3f°", angle_deg);
+        } else if (err == ESP_ERR_INVALID_RESPONSE) {
+            ESP_LOGI(TAG, "Angle: %.3f deg  (clearing stale EF)", angle_deg);
+            as5048a_clear_error(enc);
+        } else {
+            ESP_LOGE(TAG, "Encoder SPI error: %s", esp_err_to_name(err));
+        }
+
         uint16_t fs1 = 0;
         drv8323_read_reg(dev, DRV_REG_FAULT_STATUS1, &fs1);
         if (fs1 & DRV_FS1_FAULT) {
@@ -162,6 +170,6 @@ extern "C" void app_main(void)
             drv8323_print_faults(dev);
             drv8323_clear_faults(dev);
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
