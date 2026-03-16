@@ -5,35 +5,36 @@
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
+#include "Pinout.hpp"
 #include "I2CManager.hpp"
-#include "ContinuousADC.hpp"
-#include "PID.hpp"
+#include "SDCard.hpp"
+#include "SPIManagerSecondary.hpp"
 
 extern "C" void app_main(void)
 {
-    ContinuousADC continuousAdc;
+    I2CManager i2cManager{I2C_SDA, I2C_SCL};
+    bool state = true;
 
-    PID_Reg pid{1, 0, 0};
-    float value = pid.update(1, 1);
-    printf("PID value: %lf \n", value);
+    SPIManagerSecondary spiManager{
+        SPI_MOSI_1, SPI_MISO_1, SPI_CLK_1, CHIP_SELECT_SD
+    };
 
-    uint32_t numReadings = 0;
+    SDCard::writeFile("Test39", "Hello Oscar: %i.\n", state);
+    SDCard::writeFile("Test39", "Here i have appended something to the end.\n");
+
+    int32_t iteration = 0;
     int64_t startTime = esp_timer_get_time();
-
     while (1) {
-        
-        int phaseA;
-        int phaseB;
-        int phaseC;
-
-        continuousAdc.getReading(phaseA, phaseB, phaseC);
-        numReadings++;
+        iteration++;
 
         int64_t timeNow = esp_timer_get_time();
         if (timeNow - startTime > 1000000) {
-            printf("Num readings: %li | Time: %lli us. Phases: %i, %i, %i.\n", numReadings, (timeNow - startTime), phaseA, phaseB, phaseC);
+
+            state = !state;
+            i2cManager.writePin(MULTIPLEXER_LED0, state);
+            i2cManager.writePin(MULTIPLEXER_LED1, !state);
+
             startTime = timeNow;
-            numReadings = 0;
         }
         
     }
