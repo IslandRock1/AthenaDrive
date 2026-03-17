@@ -238,3 +238,62 @@ esp_err_t drv8323_print_faults(drv8323_handle_t dev)
     ESP_LOGI(TAG, "-----------------------------");
     return ESP_OK;
 }
+
+void dump_all_registers(drv8323_handle_t dev)
+{
+    static const char *reg_names[] = {
+        "Fault Status 1 (R)",
+        "VGS Status 2   (R)",
+        "Driver Control  (RW)",
+        "Gate Drive HS   (RW)",
+        "Gate Drive LS   (RW)",
+        "OCP Control     (RW)",
+        "CSA Control     (RW)",
+        "Reserved        (RW)",
+    };
+ 
+    ESP_LOGI(TAG, "====== DRV8323S Register Dump ======");
+    for (uint8_t addr = 0; addr <= 0x07; addr++) {
+        uint16_t val = 0;
+        esp_err_t err = drv8323_read_reg(dev, addr, &val);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "  [0x%02X] %-24s = 0x%03X  (%011ub)",
+                     addr, reg_names[addr], val, val);
+        } else {
+            ESP_LOGE(TAG, "  [0x%02X] read error: %s", addr, esp_err_to_name(err));
+        }
+    }
+    ESP_LOGI(TAG, "====================================");
+}
+
+esp_err_t configure_drv(drv8323_handle_t dev)
+{
+    esp_err_t err;
+ 
+    /* 1. Unlock SPI registers before writing (LOCK field in Gate Drive HS) */
+    err = drv8323_rmw_reg(dev, DRV_REG_GATE_DRIVE_HS,
+                           DRV_LOCK_MASK, DRV_LOCK_UNLOCK);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "SPI registers unlocked");
+ 
+    /* 2. Set PWM mode to 6x (one INx pin per gate) – most common for FOC */
+    err = drv8323_rmw_reg(dev, DRV_REG_GATE_DRIVE_HS,
+                           DRV_PWM_MODE_MASK, DRV_PWM_MODE_6X);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "PWM mode set to 6x");
+ 
+    /* 3. Set CSA gain to 20 V/V (DRV8323S only) */
+    err = drv8323_rmw_reg(dev, DRV_REG_CSA_CTRL,
+                           DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_20);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "CSA gain set to 20 V/V");
+ 
+    /* 4. Enable OTW reporting on nFAULT */
+    err = drv8323_rmw_reg(dev, DRV_REG_DRIVER_CTRL,
+                           DRV_DC_OTW_REP, DRV_DC_OTW_REP);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "OTW reporting enabled");
+ 
+    return ESP_OK;
+}
+

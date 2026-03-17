@@ -98,6 +98,9 @@ esp_err_t drv8323_clear_faults(drv8323_handle_t dev);
  */
 esp_err_t drv8323_print_faults(drv8323_handle_t dev);
 
+void dump_all_registers(drv8323_handle_t dev);
+esp_err_t configure_drv(drv8323_handle_t dev);
+
 #ifdef __cplusplus
 }
 #endif
