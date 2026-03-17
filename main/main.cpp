@@ -50,7 +50,7 @@ extern "C" void app_main(void)
             i2cManager.writePin(MULTIPLEXER_LED0, state);
             i2cManager.writePin(MULTIPLEXER_LED1, !state);
 
-            printf("###############################");
+            printf("########################\n");
             printf("Bus voltage: %li mV.\n", i2cManager.getBusVoltage_mV());
 
             for (int i = 0; i < 6; i++) {

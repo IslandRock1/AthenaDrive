@@ -18,6 +18,7 @@ public:
 
     esp_err_t readRegister(uint8_t address, uint16_t *data);
     esp_err_t writeRegister(uint8_t address, uint16_t data);
+    esp_err_t modifyBits(uint8_t address, uint16_t mask, uint16_t value);
 
 private:
     spi_device_handle_t _spiDevice = nullptr;

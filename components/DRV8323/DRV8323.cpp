@@ -39,6 +39,16 @@ esp_err_t DRV8323::writeRegister(uint8_t address, uint16_t data) {
     return err;
 }
 
+esp_err_t DRV8323::modifyBits(uint8_t address, uint16_t mask, uint16_t value) {
+    uint16_t current = 0;
+    esp_err_t err = readRegister(address, &current);
+    if (err != ESP_OK) { return err; }
+
+    uint16_t newValue = (current & ~mask) | (value & mask);
+    err = writeRegister(address, newValue);
+    return err;
+}
+
 esp_err_t DRV8323::spiTransfer16(uint16_t tx, uint16_t *rx) {
     uint8_t txBuffer[2] = { static_cast<uint8_t>((tx >> 8) & 0xFF), static_cast<uint8_t>(tx & 0xFF) };
     uint8_t rxBuffer[2] = { 0, 0 };
