@@ -2,7 +2,8 @@
 
 #include "Controller.hpp"
 
-Controller::Controller(const ControllerParams& params) {}
+Controller::Controller(const ControllerParams& params)
+	: _dReg(params.dRegKp, params.dRegKi), _qReg(params.qRegKp, params.qRegKi) {}
 
 Output Controller::update(
 	const float iqRef,
@@ -39,11 +40,9 @@ void Controller::_parkTransform(const float sinElectricalPos, const float cosEle
 }
 
 void Controller::_PILoop(const float iqRef, const float motorVelocity) {
-	// TODO: remember to change sign when PI is updated.
-	// float vdPI = piregD.update(_parkId, 1.0f);
-	// float vqPI = piregQ.update(_parkIq - iqRef, 1.0f);
-    float vdPI = 0.0f;
-    float vqPI = 0.0f;
+	// TODO: test sign.
+	float vdPI = _dReg.update(_parkId);
+	float vqPI = _qReg.update(_parkIq - iqRef);
 
 	float motor_l = 0.001f; // TODO! Find motor L
 	float motor_flux = 0.00067f; // TODO! Find motor flux
