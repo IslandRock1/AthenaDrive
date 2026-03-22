@@ -1,6 +1,5 @@
 #pragma once
-// Using a separate PI controller will
-// make the inner PI torque loop go faster.
+// Using a separate PI controller will make the inner PI torque loop go faster.
 
 class PI {
 public:
