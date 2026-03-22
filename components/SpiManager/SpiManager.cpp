@@ -1,5 +1,4 @@
 
-#include <stdio.h>
 #include "esp_log.h"
 #include "esp_check.h"
 #include "SpiManager.hpp"
@@ -27,7 +26,7 @@ SpiManager::SpiManager(
 SpiManager::~SpiManager() {
     if (_bus_initialized) {
         esp_err_t ret = spi_bus_free(_host);
-        ESP_LOGW(TAG_SPI, "SPI%d bus auto-freed (RAII): %s", 
+        ESP_LOGW(TAG_SPI, "SPI%d bus auto-freed: %s", 
             _host, ret == ESP_OK ? "OK" : esp_err_to_name(ret));
     }
 }
@@ -56,7 +55,7 @@ esp_err_t SpiManager::initBus() {
     ESP_RETURN_ON_ERROR(ret, TAG_SPI, "SPI bus init failed: %s", esp_err_to_name(ret));
     
     _bus_initialized = true;
-    ESP_LOGI(TAG_SPI, "SPI%d bus OK (max xfer: %d bytes)", _host, MAX_TRANSFER_SIZE);
+    ESP_LOGI(TAG_SPI, "SPI%d bus OK", _host);
     return ESP_OK;
 }
 
@@ -79,10 +78,11 @@ esp_err_t SpiManager::addDevice(
         }
 
         spi_device_interface_config_t devcfg = {};
-        devcfg.mode = static_cast<uint8_t>(spi_mode);
         devcfg.clock_speed_hz = clock_hz;
+        devcfg.mode = static_cast<uint8_t>(spi_mode);
         devcfg.spics_io_num = cs;
         devcfg.queue_size = queue_size;
+        devcfg.cs_ena_posttrans = 1;    // >=359ns CS high for encoder
 
         spi_device_handle_t handle;
         esp_err_t ret = spi_bus_add_device(_host, &devcfg, &handle);
