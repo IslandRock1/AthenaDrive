@@ -5,72 +5,74 @@
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
-#include "driver/spi_master.h"
-
-#include "I2CManager.hpp"
-
 #include "Pinout.hpp"
-#include "Encoder.hpp"
+#include "I2CManager.hpp"
+#include "DRV8323.hpp"
+#include "DRV8323_Registers.hpp"
+#include "AS5048.hpp"
+#include "AS5048_Registers.hpp"
 
 extern "C" void app_main(void)
 {
-    // Deaktiver alle andre SPI-enheter
     I2CManager i2cManager{I2C_SDA, I2C_SCL};
     i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
 
-    gpio_set_direction(CHIP_SELECT_MOTOR_DRIVER, GPIO_MODE_OUTPUT);
-    gpio_set_level(CHIP_SELECT_MOTOR_DRIVER, 1);
+    bool state = true;
 
-    // Init SPI-bussen
     spi_bus_config_t busCfg = {
         .mosi_io_num   = SPI_MOSI_0,
         .miso_io_num   = SPI_MISO_0,
         .sclk_io_num   = SPI_CLK_0,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
+        .max_transfer_sz = 2,
     };
-    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO));
+    esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
 
-    // Legg til encoder som SPI-device
-    spi_device_interface_config_t devCfg = {};
-    devCfg.clock_speed_hz = 1 * 1000 * 1000;
-    devCfg.mode = 1;
-    devCfg.spics_io_num = CHIP_SELECT_ENCODER;
-    devCfg.queue_size = 1;
-    devCfg.flags = 0;   // FULL DUPLEX
+    drvConfig configDrv = {
+        .spiHost = SPI2_HOST,
+        .cs = CHIP_SELECT_MOTOR_DRIVER,
+        .spiClockHz = 100000,
+    };
+    DRV8323 motorDriver = DRV8323(configDrv);
 
-    spi_device_handle_t encoderHandle;
-    ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &devCfg, &encoderHandle));
+    encoderConfig configEnc = {
+        .spiHost = SPI2_HOST,
+        .cs = CHIP_SELECT_ENCODER,
+        .spiClockHz = 100000,
+    };
+    AS5048 encoder = AS5048(configEnc);
 
-    // Lag encoder-objekt
-    Encoder enc(encoderHandle);
+    uint16_t error = 0;
+    encoder.readRegister(AS5048_REG_CLEAR_ERROR, &error);
 
-    if (enc.begin() != ESP_OK) {
-        ESP_LOGE("MAIN", "Encoder not responding");
-    } else {
-        ESP_LOGI("MAIN", "Encoder initialized OK");
-    }
+    int32_t iteration = 0;
+    int64_t startTime = esp_timer_get_time();
+    while (1) {
+        iteration++;
 
-    // Test-loop
-    Encoder::Diagnostics diag;
+        int64_t timeNow = esp_timer_get_time();
+        if (timeNow - startTime > 10000) {
 
-    while (true) {
-        if (enc.update() == ESP_OK) {
-            uint16_t angle = enc.getRawAngle();
-            enc.getDiagnostics(diag);
+            state = !state;
+            i2cManager.writePin(MULTIPLEXER_LED0, state);
+            i2cManager.writePin(MULTIPLEXER_LED1, !state);
 
-            ESP_LOGI("ANGLE",
-                     "Angle=%u, AGC=%d, err=%d, parity=%d",
-                     angle,
-                     diag.agc,
-                     diag.error_flag ? 1 : 0,
-                     diag.parity_error ? 1 : 0);
-        } else {
-            ESP_LOGW("ANGLE", "Failed to read angle");
+            // printf("########################\n");
+            printf("Bus voltage: %li mV. ", i2cManager.getBusVoltage_mV());
+
+            // for (int i = 0; i < 6; i++) {
+            //     uint16_t data = 0;
+            //     motorDriver.readRegister(i, &data);
+            //     printf("Address: %i | Data: %i\n", i, data);
+            // }
+
+            uint16_t rawAngle = 0;
+            encoder.readRegister(AS5048_REG_ANGLE, &rawAngle);
+            printf("Encoder angle: %f\n", static_cast<float>(rawAngle) * AS5048_DEGREES_PER_LSB);
+
+            startTime = timeNow;
         }
-
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }

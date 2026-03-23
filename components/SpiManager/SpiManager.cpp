@@ -1,97 +1,86 @@
-
-#include "esp_log.h"
-#include "esp_check.h"
 #include "SpiManager.hpp"
-
+#include "esp_log.h"
 
 static const char* TAG_SPI = "SpiManager";
 
-SpiManager::SpiManager(
-    spi_host_device_t host,
-    gpio_num_t sclk,
-    gpio_num_t mosi,
-    gpio_num_t miso,
-    int dma_chan)
-
-    : _host(host)
-    , _sclk(sclk)
-    , _mosi(mosi)
-    , _miso(miso)
-    , _dma_chan(dma_chan) {
-        
-        ESP_LOGI(TAG_SPI, "Init SPI%d (SCLK=%d, MOSI=%d, MISO=%d)", 
-            _host, sclk, mosi, miso);
-    }
-
 SpiManager::~SpiManager() {
-    if (_bus_initialized) {
-        esp_err_t ret = spi_bus_free(_host);
-        ESP_LOGW(TAG_SPI, "SPI%d bus auto-freed: %s", 
-            _host, ret == ESP_OK ? "OK" : esp_err_to_name(ret));
-    }
+    deinit();
 }
 
-esp_err_t SpiManager::validatePins() const {
-    if (_sclk == GPIO_NUM_NC || _mosi == GPIO_NUM_NC || _miso == GPIO_NUM_NC) {
-        ESP_LOGE(TAG_SPI, "Invalid pins: SCLK=%d MOSI=%d MISO=%d",
-        _sclk, _mosi, _miso);
-        return ESP_ERR_INVALID_ARG;
+SpiManager::SpiManager(SpiManager&& other) noexcept {
+    spi_ = other.spi_;
+    other.spi_ = nullptr;
+}
+
+SpiManager& SpiManager::operator=(SpiManager&& other) noexcept {
+    if (this != &other) {
+        deinit();
+        spi_ = other.spi_;
+        other.spi_ = nullptr;
     }
+    return *this;
+}
+
+esp_err_t SpiManager::init(spi_host_device_t host,
+                           gpio_num_t cs_pin,
+                           int clock_hz)
+{
+    if (spi_) {
+        deinit();
+    }
+
+    spi_device_interface_config_t devcfg = {
+        .command_bits     = 0,
+        .address_bits     = 0,
+        .dummy_bits       = 0,
+        .mode             = 3,  // CPOL=1, CPHA=1 – as in original code
+        .clock_speed_hz   = clock_hz > 0 ? clock_hz : 1000000,
+        .spics_io_num     = cs_pin,
+        .queue_size       = 1,
+        .pre_cb           = nullptr,
+        .post_cb          = nullptr,
+        .cs_ena_posttrans = 1,  // ≥350 ns CS high between frames
+    };
+
+    esp_err_t err = spi_bus_add_device(host, &devcfg, &spi_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_SPI, "spi_bus_add_device: %s", esp_err_to_name(err));
+        spi_ = nullptr;
+        return err;
+    }
+
+    ESP_LOGI(TAG_SPI, "SPI device initialised on host %d, CS GPIO%d",
+             host, cs_pin);
     return ESP_OK;
 }
 
-esp_err_t SpiManager::initBus() {
-    if (_bus_initialized) return ESP_OK;
+void SpiManager::deinit() {
+    if (spi_) {
+        spi_bus_remove_device(spi_);
+        spi_ = nullptr;
+    }
+}
 
-    spi_bus_config_t buscfg = {};
-    buscfg.miso_io_num = _miso;
-    buscfg.mosi_io_num = _mosi;
-    buscfg.sclk_io_num = _sclk;
-    buscfg.quadwp_io_num = -1;
-    buscfg.quadhd_io_num = -1;
-    buscfg.max_transfer_sz = MAX_TRANSFER_SIZE;
+esp_err_t SpiManager::transfer16(uint16_t tx, uint16_t* rx) {
+    if (!spi_) return ESP_ERR_INVALID_STATE;
 
-    esp_err_t ret = spi_bus_initialize(_host, &buscfg, _dma_chan);
-    ESP_RETURN_ON_ERROR(ret, TAG_SPI, "SPI bus init failed: %s", esp_err_to_name(ret));
-    
-    _bus_initialized = true;
-    ESP_LOGI(TAG_SPI, "SPI%d bus OK", _host);
+    uint8_t tx_buf[2] = { static_cast<uint8_t>((tx >> 8) & 0xFF),
+                          static_cast<uint8_t>(tx & 0xFF) };
+    uint8_t rx_buf[2] = { 0, 0 };
+
+    spi_transaction_t t = {};
+    t.length    = 16;
+    t.tx_buffer = tx_buf;
+    t.rx_buffer = rx_buf;
+
+    esp_err_t err = spi_device_transmit(spi_, &t);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG_SPI, "SPI transmit error: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (rx) {
+        *rx = (static_cast<uint16_t>(rx_buf[0]) << 8) | rx_buf[1];
+    }
     return ESP_OK;
-}
-
-esp_err_t SpiManager::init() {
-    return initBus();
-}
-
-esp_err_t SpiManager::addDevice(
-    gpio_num_t cs,
-    uint32_t clock_hz,
-    int spi_mode,
-    uint32_t queue_size,
-    spi_device_handle_t* out_handle) {
-
-        ESP_RETURN_ON_FALSE(isInitialized(), ESP_ERR_INVALID_STATE, TAG_SPI, "Call init() first!");
-
-        if (cs == GPIO_NUM_NC) {
-            ESP_LOGE(TAG_SPI, "Invalid CS pin: %d", cs);
-            return ESP_ERR_INVALID_ARG;
-        }
-
-        spi_device_interface_config_t devcfg = {};
-        devcfg.clock_speed_hz = clock_hz;
-        devcfg.mode = static_cast<uint8_t>(spi_mode);
-        devcfg.spics_io_num = cs;
-        devcfg.queue_size = queue_size;
-        devcfg.cs_ena_posttrans = 1;    // >=359ns CS high for encoder
-
-        spi_device_handle_t handle;
-        esp_err_t ret = spi_bus_add_device(_host, &devcfg, &handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG_SPI, "Device(CS=%d) failed: %s", cs, esp_err_to_name(ret));
-            return ret;
-        }
-        
-        if (out_handle) *out_handle = handle;
-        ESP_LOGI(TAG_SPI, "Device OK: CS=%d @.1fMHz", cs, clock_hz/1e6f);
-        return ESP_OK;
 }
