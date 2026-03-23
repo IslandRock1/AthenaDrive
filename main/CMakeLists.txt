@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "main.cpp"
     INCLUDE_DIRS "." "Include"
-    REQUIRES driver esp_timer I2CManager SPIManagerSecondary PID PI SDCard DRV8323
+    REQUIRES driver esp_timer I2CManager SPIManagerSecondary PID SDCard DRV8323 AS5048
     )

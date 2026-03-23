@@ -9,15 +9,14 @@
 #include "I2CManager.hpp"
 #include "DRV8323.hpp"
 #include "DRV8323_Registers.hpp"
+#include "AS5048.hpp"
+#include "AS5048_Registers.hpp"
 
 extern "C" void app_main(void)
 {
     I2CManager i2cManager{I2C_SDA, I2C_SCL};
     i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
-
-    gpio_set_direction(CHIP_SELECT_ENCODER, GPIO_MODE_OUTPUT);
-    gpio_set_level(CHIP_SELECT_ENCODER, 1);
 
     bool state = true;
 
@@ -31,12 +30,22 @@ extern "C" void app_main(void)
     };
     esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
 
-    drvConfig config = {
+    drvConfig configDrv = {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_MOTOR_DRIVER,
         .spiClockHz = 100000,
     };
-    DRV8323 motorDriver = DRV8323(config);
+    DRV8323 motorDriver = DRV8323(configDrv);
+
+    encoderConfig configEnc = {
+        .spiHost = SPI2_HOST,
+        .cs = CHIP_SELECT_ENCODER,
+        .spiClockHz = 100000,
+    };
+    AS5048 encoder = AS5048(configEnc);
+
+    uint16_t error = 0;
+    encoder.readRegister(AS5048_REG_CLEAR_ERROR, &error);
 
     int32_t iteration = 0;
     int64_t startTime = esp_timer_get_time();
@@ -44,23 +53,26 @@ extern "C" void app_main(void)
         iteration++;
 
         int64_t timeNow = esp_timer_get_time();
-        if (timeNow - startTime > 1000000) {
+        if (timeNow - startTime > 10000) {
 
             state = !state;
             i2cManager.writePin(MULTIPLEXER_LED0, state);
             i2cManager.writePin(MULTIPLEXER_LED1, !state);
 
-            printf("########################\n");
-            printf("Bus voltage: %li mV.\n", i2cManager.getBusVoltage_mV());
+            // printf("########################\n");
+            printf("Bus voltage: %li mV. ", i2cManager.getBusVoltage_mV());
 
-            for (int i = 0; i < 6; i++) {
-                uint16_t data = 0;
-                motorDriver.readRegister(i, &data);
-                printf("Address: %i | Data: %i\n", i, data);
-            }
+            // for (int i = 0; i < 6; i++) {
+            //     uint16_t data = 0;
+            //     motorDriver.readRegister(i, &data);
+            //     printf("Address: %i | Data: %i\n", i, data);
+            // }
+
+            uint16_t rawAngle = 0;
+            encoder.readRegister(AS5048_REG_ANGLE, &rawAngle);
+            printf("Encoder angle: %f\n", static_cast<float>(rawAngle) * AS5048_DEGREES_PER_LSB);
 
             startTime = timeNow;
         }
-        
     }
 }
