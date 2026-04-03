@@ -11,6 +11,7 @@
 #include "DRV8323_Registers.hpp"
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
+#include "MCPWM.hpp"
 
 extern "C" void app_main(void)
 {
@@ -46,6 +47,9 @@ extern "C" void app_main(void)
 
     uint16_t error = 0;
     encoder.readRegister(AS5048_REG_CLEAR_ERROR, &error);
+
+    Mcpwm::Config pwmCfg = {};
+    // TODO: legg inn pinout
 
     int32_t iteration = 0;
     int64_t startTime = esp_timer_get_time();
