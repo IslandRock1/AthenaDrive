@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include "esp_timer.h"
+#include "esp_log.h"
+#include "esp_err.h"
 #include <cmath>
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
@@ -22,7 +24,7 @@ static uint16_t applyParity(uint16_t word)
 }
 
 AS5048::AS5048(encoderConfig &config)
-    : _spiHost(config.spiHost) {
+    : _spiHost(config.spiHost), _spiDevice(nullptr) {
     
     spi_device_interface_config_t devConfig = {
         .command_bits   = 0,
@@ -36,7 +38,10 @@ AS5048::AS5048(encoderConfig &config)
     };
 
     esp_err_t err = spi_bus_add_device(config.spiHost, &devConfig, &_spiDevice);
-    // TODO: Error handling.
+    if (err != ESP_OK) {
+        _spiDevice = nullptr;
+        ESP_LOGE("Encoder", "spi_bus_add_device failed: %s", esp_err_to_name(err));
+    }
 }
 
 AS5048::~AS5048() {
@@ -70,7 +75,7 @@ esp_err_t AS5048::update(uint32_t &rotations, float &angle, float &cumAngle, flo
     if (delta > 8192) delta -= 16384;
     else if (delta < -8192) delta += 16384;
 
-    rotations += delta;
+    _rotations += delta;
     _prevRaw = raw;
 
     // normalise angle [0, 2pi]
