@@ -1,4 +1,8 @@
 #include <stdio.h>
+#include "esp_timer.h"
+#include "esp_log.h"
+#include "esp_err.h"
+#include <cmath>
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
 
@@ -20,7 +24,7 @@ static uint16_t applyParity(uint16_t word)
 }
 
 AS5048::AS5048(encoderConfig &config)
-    : _spiHost(config.spiHost) {
+    : _spiHost(config.spiHost), _spiDevice(nullptr) {
     
     spi_device_interface_config_t devConfig = {
         .command_bits   = 0,
@@ -34,13 +38,65 @@ AS5048::AS5048(encoderConfig &config)
     };
 
     esp_err_t err = spi_bus_add_device(config.spiHost, &devConfig, &_spiDevice);
-    // TODO: Error handling.
+    if (err != ESP_OK) {
+        _spiDevice = nullptr;
+        ESP_LOGE("Encoder", "spi_bus_add_device failed: %s", esp_err_to_name(err));
+    }
 }
 
 AS5048::~AS5048() {
     if (_spiDevice) {
         spi_bus_remove_device(_spiDevice);
     }
+}
+
+esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
+    uint16_t rawAngle = 0;
+    esp_err_t err = readRegister(AS5048_REG_ANGLE, &rawAngle);
+    if (err != ESP_OK) return err;
+
+    int16_t raw = static_cast<int16_t>(rawAngle & AS5048_DATA_MASK);    // 0-16383
+
+    if (_firstUpdate) {
+        _prevRaw = raw;
+        _rotations = 0;
+        _prevAngleRad = (raw / 16384.0f) * 2.0f * M_PI;
+        _prevTime = esp_timer_get_time();
+        _firstUpdate = false;
+
+        rotations = 0;
+        angle = _prevAngleRad;
+        cumAngle = _prevAngleRad;
+        velocity = 0.0f;
+        return ESP_OK;
+    }
+
+    int16_t delta = raw - _prevRaw;
+    if (delta > 8192) delta -= 16384;
+    else if (delta < -8192) delta += 16384;
+
+    _rotations += delta;
+    _prevRaw = raw;
+
+    // normalise angle [0, 2pi]
+    float angleRad = (raw / 16384.0f) * 2.0f * M_PI;
+
+    // cumulated angle
+    float cumAngleRad = (_rotations / 16384.0f) * 2.0f * M_PI;
+
+    // velocity
+    int64_t now = esp_timer_get_time();
+    float deltaT = (now - _prevTime) * 1e-6f;
+    float deltaAng = cumAngleRad - _prevAngleRad;
+
+    velocity = (deltaT > 0.0f) ? (deltaAng / deltaT) : 0.0f;
+    _prevTime = now;
+    _prevAngleRad = cumAngleRad;
+
+    rotations = _rotations / 16384;
+    angle = angleRad;
+    cumAngle = cumAngleRad;
+    return ESP_OK;
 }
 
 esp_err_t AS5048::readRegister(uint16_t address, uint16_t *data) {

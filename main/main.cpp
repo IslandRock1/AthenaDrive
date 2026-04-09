@@ -61,6 +61,12 @@ extern "C" void app_main(void)
 
     int32_t iteration = 0;
     int64_t startTime = esp_timer_get_time();
+
+    int32_t rotations = 0;
+    float angle = 0.0;
+    float cumAngle = 0.0;
+    float velocity = 0.0;
+
     while (1) {
         iteration++;
 
@@ -71,18 +77,10 @@ extern "C" void app_main(void)
             i2cManager.writePin(MULTIPLEXER_LED0, state);
             i2cManager.writePin(MULTIPLEXER_LED1, !state);
 
-            // printf("########################\n");
             printf("Bus voltage: %li mV. ", i2cManager.getBusVoltage_mV());
 
-            // for (int i = 0; i < 6; i++) {
-            //     uint16_t data = 0;
-            //     motorDriver.readRegister(i, &data);
-            //     printf("Address: %i | Data: %i\n", i, data);
-            // }
-
-            uint16_t rawAngle = 0;
-            encoder.readRegister(AS5048_REG_ANGLE, &rawAngle);
-            printf("Encoder angle: %f\n", static_cast<float>(rawAngle) * AS5048_DEGREES_PER_LSB);
+            encoder.update(rotations, angle, cumAngle, velocity);
+            printf("Rots: %li | Angle: %f | Cum: %f | Velocity: %f\n", rotations, angle, cumAngle, velocity);
 
             startTime = timeNow;
         }
