@@ -71,7 +71,9 @@ esp_err_t Mcpwm::set_phase_voltages(float va, float vb, float vc) {
     if (!_initialised || !_enabled) return ESP_ERR_INVALID_STATE;
 
     auto set_duty = [&](Phase& phase, float voltage) -> esp_err_t {
-        uint32_t duty_ticks = (uint32_t)(fabsf(fminf(fmaxf(voltage, -1.0f), 1.0f)) * (_period_tics - 1));
+        auto bound = fminf(fmaxf(voltage, -1.0f), 1.0f);
+        auto normalised = (bound + 1.0) / 2.0;
+        uint32_t duty_ticks = (uint32_t)(normalised * (_period_tics - 1));
         return mcpwm_comparator_set_compare_value(phase.cmpr, duty_ticks);
     };
 
