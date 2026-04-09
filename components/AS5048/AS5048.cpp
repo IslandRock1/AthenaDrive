@@ -50,7 +50,7 @@ AS5048::~AS5048() {
     }
 }
 
-esp_err_t AS5048::update(uint32_t &rotations, float &angle, float &cumAngle, float &velocity) {
+esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
     uint16_t rawAngle = 0;
     esp_err_t err = readRegister(AS5048_REG_ANGLE, &rawAngle);
     if (err != ESP_OK) return err;
@@ -87,7 +87,7 @@ esp_err_t AS5048::update(uint32_t &rotations, float &angle, float &cumAngle, flo
     // velocity
     int64_t now = esp_timer_get_time();
     float deltaT = (now - _prevTime) * 1e-6f;
-    float deltaAng = cumAngleRad + _prevAngleRad;
+    float deltaAng = cumAngleRad - _prevAngleRad;
 
     velocity = (deltaT > 0.0f) ? (deltaAng / deltaT) : 0.0f;
     _prevTime = now;
