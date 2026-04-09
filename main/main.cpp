@@ -11,6 +11,7 @@
 #include "DRV8323_Registers.hpp"
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
+#include "MCPWM.hpp"
 
 extern "C" void app_main(void)
 {
@@ -46,6 +47,17 @@ extern "C" void app_main(void)
 
     uint16_t error = 0;
     encoder.readRegister(AS5048_REG_CLEAR_ERROR, &error);
+
+    Mcpwm::Config pwmCfg = {};
+    pwmCfg.pwm_a_gpio = MOTOR_HIGH_A;
+    pwmCfg.pwm_b_gpio = MOTOR_HIGH_B;
+    pwmCfg.pwm_c_gpio = MOTOR_HIGH_C;
+    pwmCfg.n_sleep_gpio = GPIO_NUM_NC;
+
+    Mcpwm mcpwm;
+    mcpwm.init(pwmCfg);
+    mcpwm.enable();
+    mcpwm.set_phase_voltages(0.4, 0.4, 0.4);
 
     int32_t iteration = 0;
     int64_t startTime = esp_timer_get_time();
