@@ -6,6 +6,18 @@ PID_Reg::PID_Reg(float kp, float ki, float kd)
     : _kp(kp), _ki(ki), _kd(kd){
 }
 
+void PID_Reg::setKp(float kp) {
+    _kp = kp;
+}
+
+void PID_Reg::setKi(float ki) {
+    _ki = ki;
+}
+
+void PID_Reg::setKd(float kd) {
+    _kd = kd;
+}
+
 void PID_Reg::setSetpoint(float sp) {
     _setpoint = sp;
 }

@@ -10,6 +10,8 @@ struct SensorData {
     uint32_t timestamp_ms;
     float position;
     float velocity;
+    float torque;
+    float current;
 };
 
 struct Command {
