@@ -9,8 +9,9 @@
 #include "Pinout.hpp"
 #include "I2CManager.hpp"
 #include "ContinuousADC.hpp"
-#include "Controller.hpp"
+// #include "Controller.hpp"
 #include "PID.hpp"
+#include "PI.hpp"
 #include "SerialComm.hpp"
 
 #include "DRV8323.hpp"
@@ -18,6 +19,12 @@
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
 #include "MCPWM.hpp"
+
+struct Output {
+	float phaseA;
+	float phaseB;
+	float phaseC;
+};
 
 constexpr float PI_CONST = 3.1415926535897f;
 constexpr float TWO_PI = 2.0f * PI_CONST;
@@ -173,21 +180,39 @@ atomic_uint avgLoopTimeGlob = 0;
 
 float angleOffset = 0;
 
-PID_Reg velocityPID{0.005, 0.0, 0.0};
+atomic_uint drivingModeGlob = 0;
+/*
+drivingMode =>
+0: Disabled
+1: Torque
+2: Velocity
+3: Position
+*/
+
+PI_Reg torquePI{0.0, 0.0};
+atomic_uint torqueSetpointGlob = 0.0;
+atomic_uint updateFreqTorqueGlob = 1; // TODO!
+
+PID_Reg velocityPID{0.0, 0.0, 0.0};
 atomic_uint velocitySetpointGlob = 0.0;
+atomic_uint updateFreqVelocityGlob = 10; // TODO!
+
+PID_Reg positionPID{0.0, 0.0, 0.0};
+atomic_uint positionSetpointGlob = 0.0;
+atomic_uint updateFreqPositionGlob = 100; // TODO!
 
 void realTimeTask(void *pvParameters) {
 
+    static int32_t rotations;
+    static float angle, cumAngle, velocity;
+
+    static float sumVelocity = 0;
+    static float sumStrength = 0;
+    static float sumLoopTime = 0;
+    static float numLoops = 0;
+
     while (1) {
         int64_t startTime = esp_timer_get_time();
-
-        static int32_t rotations;
-        static float angle, cumAngle, velocity;
-
-        static float sumVelocity = 0;
-        static float sumStrength = 0;
-        static float sumLoopTime = 0;
-        static float numLoops = 0;
 
         spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
         rotationsGlob = rotations;
@@ -200,16 +225,33 @@ void realTimeTask(void *pvParameters) {
         float elPos = fmodf((angle * 20.0f), TWO_PI);
         Output output{};
 
-        float velSetpoint = atomic_load_float(&velocitySetpointGlob);
-        velocityPID.setSetpoint(velSetpoint);
-        float strenght = velocityPID.update(velocity, 1.0);
-        strenght = std::max(-0.4f, std::min(0.4f, strenght));
+        float positionSetpoint = atomic_load_float(&positionSetpointGlob);
+        float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+        float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+        float strength = 0.0f;
+        if (drivingModeGlob > 2) {
+            positionPID.setSetpoint(positionSetpoint);
+            velocitySetpoint = positionPID.update(cumAngle, 1.0f);
+        }
 
-        sumStrength += strenght;
+        if (drivingModeGlob > 1) {
+            velocityPID.setSetpoint(velocitySetpoint);
+            torqueSetpoint = velocityPID.update(velocity, 1.0f);
+        }
+
+        if (drivingModeGlob > 0) {
+            strength = torqueSetpoint;
+            // TODO: read current, and send this to
+            // torque PI.
+        }
+
+        strength = std::max(-0.4f, std::min(0.4f, strength));
+
+        sumStrength += strength;
         float posDelta = PI_DIV_2;
-        output.phaseA = strenght * sin(elPos + PI_DIV_2 + posDelta);
-        output.phaseB = strenght * sin(elPos + PI_7_DIV_6 + posDelta);
-        output.phaseC = strenght * sin(elPos - PI_DIV_6 + posDelta);
+        output.phaseA = strength * sin(elPos + PI_DIV_2 + posDelta);
+        output.phaseB = strength * sin(elPos + PI_7_DIV_6 + posDelta);
+        output.phaseC = strength * sin(elPos - PI_DIV_6 + posDelta);
 
         auto err = mcpwm.set_phase_voltages(0.5 + output.phaseA, 0.5 + output.phaseB, 0.5 + output.phaseC);
         
@@ -217,7 +259,7 @@ void realTimeTask(void *pvParameters) {
         sumLoopTime += (endTime - startTime);
         numLoops++;
         
-        if (numLoops == 1000) {
+        if (numLoops == 100) {
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
             float avgVelocity = sumVelocity / static_cast<float>(numLoops);
             float avgStrenght = sumStrength / static_cast<float>(numLoops);
@@ -296,14 +338,18 @@ extern "C" void app_main(void)
     SerialCom serialCom{};
     SensorData sensorData{};
 
+    uint32_t loopTimeSerial = 0;
+
     bool state = false;
     int iteration = 0;
     while (1) {
+        auto startTime = esp_timer_get_time();
 
         iteration++;
+
         state = !state;
-        i2cManager.writePin(MULTIPLEXER_LED0, state);
-        i2cManager.writePin(MULTIPLEXER_LED1, !state);
+        i2cManager.writePin(MULTIPLEXER_LED0, drivingModeGlob == 1);
+        i2cManager.writePin(MULTIPLEXER_LED1, state);
         auto current = i2cManager.getCurrent_mA();
         
         float velocity = atomic_load_float(&avgVelocityGlob);
@@ -312,10 +358,12 @@ extern "C" void app_main(void)
 
         sensorData.iteration = iteration;
         sensorData.timestamp_ms = esp_timer_get_time();
-        sensorData.position = atomic_load_float(&cumAngleGlob); // static_cast<float>(rotationsGlob) * TWO_PI + atomic_load_float(&angleGlob);
+        sensorData.position = atomic_load_float(&cumAngleGlob);
         sensorData.velocity = velocity;
         sensorData.torque = torque;
         sensorData.current = current;
+        sensorData.loopTimeSerial = loopTimeSerial;
+        sensorData.loopTimeMotor = looptime;
         serialCom.setData(sensorData);
 
         Command cmd{};
@@ -324,19 +372,51 @@ extern "C" void app_main(void)
             switch (cmd.command_type)
             {
             case 1:
-                atomic_store_float(&velocitySetpointGlob, cmd.value1);
+                torquePI.setKp(cmd.value1);
                 break;
             
             case 2:
-                velocityPID.setKp(cmd.value1);
+                torquePI.setKi(cmd.value1);
                 break;
             
             case 3:
-                velocityPID.setKi(cmd.value1);
+                velocityPID.setKp(cmd.value1);
                 break;
             
             case 4:
+                velocityPID.setKi(cmd.value1);
+                break;
+            
+            case 5:
                 velocityPID.setKd(cmd.value1);
+                break;
+
+            case 6:
+                positionPID.setKp(cmd.value1);
+                break;
+
+            case 7:
+                positionPID.setKi(cmd.value1);
+                break;
+
+            case 8:
+                positionPID.setKd(cmd.value1);
+                break;
+
+            case 9:
+                atomic_store_float(&torqueSetpointGlob, cmd.value1);
+                break;
+
+            case 10:
+                atomic_store_float(&velocitySetpointGlob, cmd.value1);
+                break;
+            
+            case 11:
+                atomic_store_float(&positionSetpointGlob, cmd.value1);
+                break;
+
+            case 12:
+                drivingModeGlob = cmd.value0;
                 break;
 
             default:
@@ -344,9 +424,9 @@ extern "C" void app_main(void)
             }
         }
 
-        if (iteration % 10 == 0) {
-            serialCom.update();
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        serialCom.update();
+        auto endTime = esp_timer_get_time();
+        loopTimeSerial = endTime - startTime;
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }

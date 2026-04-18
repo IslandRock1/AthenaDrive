@@ -1,9 +1,13 @@
 #pragma once
 // Using a separate PI controller will make the inner PI torque loop go faster.
 
-class PI {
+class PI_Reg {
 public:
-    PI(float kp, float ki);
+    PI_Reg(float kp, float ki);
+
+    void setKp(float kp);
+    void setKi(float ki);
+
     float update(float error);
 
 private:

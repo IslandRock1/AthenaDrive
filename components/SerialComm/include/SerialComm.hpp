@@ -3,24 +3,7 @@
 #include <cstdint>
 #include "driver/usb_serial_jtag.h"
 #include "hal/usb_serial_jtag_ll.h"
-
-// --- Shared data structures (must match PC side exactly) ---
-#pragma pack(push, 1)
-struct SensorData {
-    uint32_t iteration;
-    uint32_t timestamp_ms;
-    float position;
-    float velocity;
-    float torque;
-    float current;
-};
-
-struct Command {
-    uint8_t command_type;
-    int32_t value0;
-    float value1;
-};
-#pragma pack(pop)
+#include "SerialConfig.hpp"
 
 class SerialCom {
 public:
