@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
+
 static const char *TAG = "SerialCom";
 
 SerialCom::SerialCom(size_t tx_buf_size, size_t rx_buf_size) {
@@ -27,17 +28,27 @@ bool SerialCom::getData(Command &cmd) {
 }
 
 void SerialCom::update() {
-    const uint8_t sync[2] = {SYNC_BYTE_0, SYNC_BYTE_1};
-    usb_serial_jtag_write_bytes(reinterpret_cast<const char *>(sync),
-                                sizeof(sync), portMAX_DELAY);
+    // const uint8_t sync[2] = {SYNC_BYTE_0, SYNC_BYTE_1};
+    // usb_serial_jtag_write_bytes(reinterpret_cast<const char *>(sync),
+    //                             sizeof(sync), portMAX_DELAY);
+
+    // int bytes_sent = usb_serial_jtag_write_bytes(
+    //     reinterpret_cast<const char *>(&m_tx_data),
+    //     sizeof(SensorData),
+    //     portMAX_DELAY
+    // );
+
+    uint8_t frame[2 + sizeof(SensorData)];
+    frame[0] = SYNC_BYTE_0;
+    frame[1] = SYNC_BYTE_1;
+    memcpy(frame + 2, &m_tx_data, sizeof(SensorData));
 
     int bytes_sent = usb_serial_jtag_write_bytes(
-        reinterpret_cast<const char *>(&m_tx_data),
-        sizeof(SensorData),
-        portMAX_DELAY
-    );
+        reinterpret_cast<const char *>(frame), sizeof(frame), portMAX_DELAY);
 
-    if (bytes_sent != sizeof(SensorData)) {
+    usb_serial_jtag_ll_txfifo_flush();
+
+    if ((bytes_sent - 2) != sizeof(SensorData)) {
         ESP_LOGE(TAG, "Failed to send full SensorData (sent %d)", bytes_sent);
     }
 }

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "driver/usb_serial_jtag.h"
+#include "hal/usb_serial_jtag_ll.h"
 
 // --- Shared data structures (must match PC side exactly) ---
 #pragma pack(push, 1)

@@ -299,6 +299,7 @@ extern "C" void app_main(void)
     bool state = false;
     int iteration = 0;
     while (1) {
+
         iteration++;
         state = !state;
         i2cManager.writePin(MULTIPLEXER_LED0, state);
@@ -343,7 +344,9 @@ extern "C" void app_main(void)
             }
         }
 
-        serialCom.update();
+        if (iteration % 10 == 0) {
+            serialCom.update();
+        }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
