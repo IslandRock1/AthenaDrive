@@ -4,6 +4,10 @@ class PID_Reg {
 public:
     PID_Reg(float kp, float ki, float kd);
 
+    void setKp(float kp);
+    void setKi(float ki);
+    void setKd(float kd);
+    
     void setSetpoint(float sp);
     float update(float currVal, float dt);
 
