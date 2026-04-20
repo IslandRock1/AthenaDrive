@@ -211,13 +211,22 @@ void realTimeTask(void *pvParameters) {
     static float sumLoopTime = 0;
     static float numLoops = 0;
 
+    float positionSetpoint = atomic_load_float(&positionSetpointGlob);
+    float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+    float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+
+    float strengthOut = 0.0f;
+    float strengthFilterAlpha = 0.001f;
+
+    uint64_t iteration = 0;
     while (1) {
         int64_t startTime = esp_timer_get_time();
+        iteration++;
 
         spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
         rotationsGlob = rotations;
-        atomic_store_float(&angleGlob, angle);
-        atomic_store_float(&cumAngleGlob, cumAngle);
+        // atomic_store_float(&angleGlob, angle);
+        // atomic_store_float(&cumAngleGlob, cumAngle);
 
         sumVelocity += velocity;
         angle -= angleOffset;
@@ -225,33 +234,34 @@ void realTimeTask(void *pvParameters) {
         float elPos = fmodf((angle * 20.0f), TWO_PI);
         Output output{};
 
-        float positionSetpoint = atomic_load_float(&positionSetpointGlob);
-        float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
-        float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+        // float positionSetpoint = atomic_load_float(&positionSetpointGlob);
+        // float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+        // float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
         float strength = 0.0f;
-        if (drivingModeGlob > 2) {
+        if ((drivingModeGlob > 2) && (iteration % updateFreqPositionGlob == 0)) {
             positionPID.setSetpoint(positionSetpoint);
-            velocitySetpoint = positionPID.update(cumAngle, 1.0f);
+            velocitySetpoint = positionPID.update(cumAngle, (float)updateFreqPositionGlob);
         }
 
-        if (drivingModeGlob > 1) {
+        if ((drivingModeGlob > 1) && (iteration % updateFreqVelocityGlob == 0)) {
             velocityPID.setSetpoint(velocitySetpoint);
-            torqueSetpoint = velocityPID.update(velocity, 1.0f);
+            torqueSetpoint = velocityPID.update(velocity, (float)updateFreqVelocityGlob);
         }
 
-        if (drivingModeGlob > 0) {
+        if ((drivingModeGlob > 0) && (iteration % updateFreqTorqueGlob == 0)) {
             strength = torqueSetpoint;
             // TODO: read current, and send this to
             // torque PI.
         }
 
         strength = std::max(-0.4f, std::min(0.4f, strength));
-
         sumStrength += strength;
+        strengthOut = strengthOut * (1 - strengthFilterAlpha) + strength * strengthFilterAlpha;
+
         float posDelta = PI_DIV_2;
-        output.phaseA = strength * sin(elPos + PI_DIV_2 + posDelta);
-        output.phaseB = strength * sin(elPos + PI_7_DIV_6 + posDelta);
-        output.phaseC = strength * sin(elPos - PI_DIV_6 + posDelta);
+        output.phaseA = strengthOut * sin(elPos + PI_DIV_2 + posDelta);
+        output.phaseB = strengthOut * sin(elPos + PI_7_DIV_6 + posDelta);
+        output.phaseC = strengthOut * sin(elPos - PI_DIV_6 + posDelta);
 
         auto err = mcpwm.set_phase_voltages(0.5 + output.phaseA, 0.5 + output.phaseB, 0.5 + output.phaseC);
         
@@ -260,6 +270,24 @@ void realTimeTask(void *pvParameters) {
         numLoops++;
         
         if (numLoops == 100) {
+            if (drivingModeGlob == DrivingMode::Position) {
+                positionSetpoint = atomic_load_float(&positionSetpointGlob);
+            } else if (drivingModeGlob == DrivingMode::Velocity) {
+                velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+            } else if (drivingModeGlob == DrivingMode::Torque) {
+                torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+            } else {
+                positionSetpoint = 0.0f;
+                velocitySetpoint = 0.0f;
+                torqueSetpoint = 0.0f;
+            }
+            
+            
+            
+
+            atomic_store_float(&angleGlob, angle);
+            atomic_store_float(&cumAngleGlob, cumAngle);
+
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
             float avgVelocity = sumVelocity / static_cast<float>(numLoops);
             float avgStrenght = sumStrength / static_cast<float>(numLoops);
