@@ -371,51 +371,56 @@ extern "C" void app_main(void)
         if (gotData) {
             switch (cmd.command_type)
             {
+            
             case 1:
-                torquePI.setKp(cmd.value1);
+                atomic_store_float(&torqueSetpointGlob, cmd.value1);
                 break;
             
             case 2:
-                torquePI.setKi(cmd.value1);
+                torquePI.setKp(cmd.value1);
                 break;
             
             case 3:
-                velocityPID.setKp(cmd.value1);
+                torquePI.setKi(cmd.value1);
                 break;
             
             case 4:
-                velocityPID.setKi(cmd.value1);
+                // No Command
                 break;
-            
+
             case 5:
-                velocityPID.setKd(cmd.value1);
+                atomic_store_float(&velocitySetpointGlob, cmd.value1);
                 break;
 
             case 6:
-                positionPID.setKp(cmd.value1);
+                velocityPID.setKp(cmd.value1);
                 break;
-
+            
             case 7:
-                positionPID.setKi(cmd.value1);
+                velocityPID.setKi(cmd.value1);
                 break;
-
+            
             case 8:
-                positionPID.setKd(cmd.value1);
+                velocityPID.setKd(cmd.value1);
                 break;
 
             case 9:
-                atomic_store_float(&torqueSetpointGlob, cmd.value1);
-                break;
-
-            case 10:
-                atomic_store_float(&velocitySetpointGlob, cmd.value1);
-                break;
-            
-            case 11:
                 atomic_store_float(&positionSetpointGlob, cmd.value1);
                 break;
 
+            case 10:
+                positionPID.setKp(cmd.value1);
+                break;
+
+            case 11:
+                positionPID.setKi(cmd.value1);
+                break;
+
             case 12:
+                positionPID.setKd(cmd.value1);
+                break;
+
+            case 13:
                 drivingModeGlob = cmd.value0;
                 break;
 
