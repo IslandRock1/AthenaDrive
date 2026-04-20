@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "stdatomic.h"
@@ -9,7 +10,6 @@
 #include "Pinout.hpp"
 #include "I2CManager.hpp"
 #include "ContinuousADC.hpp"
-// #include "Controller.hpp"
 #include "PID.hpp"
 #include "PI.hpp"
 #include "SerialComm.hpp"
@@ -59,7 +59,7 @@ spiOut spi_stuff() {
     encoderConfig configEnc = {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_ENCODER,
-        .spiClockHz = 100000,
+        .spiClockHz = 10 * 000000,
     };
     auto encoder = new AS5048(configEnc);
 
@@ -201,7 +201,7 @@ PID_Reg positionPID{0.0, 0.0, 0.0};
 atomic_uint positionSetpointGlob = 0.0;
 atomic_uint updateFreqPositionGlob = 100; // TODO!
 
-void realTimeTask(void *pvParameters) {
+void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     static int32_t rotations;
     static float angle, cumAngle, velocity;
@@ -219,24 +219,25 @@ void realTimeTask(void *pvParameters) {
     float strengthFilterAlpha = 0.001f;
 
     uint64_t iteration = 0;
+    int64_t startTime = esp_timer_get_time();
     while (1) {
-        int64_t startTime = esp_timer_get_time();
         iteration++;
 
         spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
         rotationsGlob = rotations;
-        // atomic_store_float(&angleGlob, angle);
-        // atomic_store_float(&cumAngleGlob, cumAngle);
 
         sumVelocity += velocity;
         angle -= angleOffset;
         if (angle < 0.0) { angle += TWO_PI; }
-        float elPos = fmodf((angle * 20.0f), TWO_PI);
+
+        // float elPos = fmodf((angle * 20.0f), TWO_PI);
+        float temp = angle * 20.0f;
+        while (temp >= TWO_PI) temp -= TWO_PI;
+        while (temp < 0) temp += TWO_PI;
+        float elPos = temp;
+
         Output output{};
 
-        // float positionSetpoint = atomic_load_float(&positionSetpointGlob);
-        // float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
-        // float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
         float strength = 0.0f;
         if ((drivingModeGlob > 2) && (iteration % updateFreqPositionGlob == 0)) {
             positionPID.setSetpoint(positionSetpoint);
@@ -264,9 +265,6 @@ void realTimeTask(void *pvParameters) {
         output.phaseC = strengthOut * sin(elPos - PI_DIV_6 + posDelta);
 
         auto err = mcpwm.set_phase_voltages(0.5 + output.phaseA, 0.5 + output.phaseB, 0.5 + output.phaseC);
-        
-        int64_t endTime = esp_timer_get_time();
-        sumLoopTime += (endTime - startTime);
         numLoops++;
         
         if (numLoops == 100) {
@@ -282,12 +280,12 @@ void realTimeTask(void *pvParameters) {
                 torqueSetpoint = 0.0f;
             }
             
-            
-            
-
             atomic_store_float(&angleGlob, angle);
             atomic_store_float(&cumAngleGlob, cumAngle);
 
+            int64_t endTime = esp_timer_get_time();
+            auto sumLoopTime = endTime - startTime;
+            startTime = endTime;
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
             float avgVelocity = sumVelocity / static_cast<float>(numLoops);
             float avgStrenght = sumStrength / static_cast<float>(numLoops);
@@ -358,7 +356,7 @@ extern "C" void app_main(void)
         "MotorDriverTask",
         4096,
         NULL,
-        5,
+        24,
         NULL,
         1
     );
@@ -460,6 +458,6 @@ extern "C" void app_main(void)
         serialCom.update();
         auto endTime = esp_timer_get_time();
         loopTimeSerial = endTime - startTime;
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
