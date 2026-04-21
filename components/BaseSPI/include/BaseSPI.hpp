@@ -18,9 +18,9 @@ public:
     ~BaseSPI();
 
     esp_err_t begin(SpiConfig config);
-    virtual esp_err_t readRegister(uint8_t address, uint16_t &data) = 0;
-    virtual esp_err_t writeRegister(uint8_t address, uint16_t data) = 0;
-    virtual esp_err_t modifyBits(uint8_t address, uint16_t mask, uint16_t value) = 0;
+    virtual esp_err_t readRegister(uint16_t address, uint16_t &data) = 0;
+    virtual esp_err_t writeRegister(uint16_t address, uint16_t data) = 0;
+    virtual esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value) = 0;
 
 protected:
     spi_device_handle_t _spiDevice = nullptr;

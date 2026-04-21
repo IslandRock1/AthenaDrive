@@ -51,15 +51,17 @@ spiOut spi_stuff() {
     auto motorDriver = new DRV8323;
     motorDriver->begin(configDRV);
 
-    encoderConfig configEnc = {
+    SpiConfig configEnc = {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_ENCODER,
-        .spiClockHz = 100000,
+        .spiClockHz = 10 * 1000 * 1000,
+        .mode = 3,
     };
-    auto encoder = new AS5048(configEnc);
+    auto encoder = new AS5048;
+    encoder->begin(configEnc);
 
     uint16_t error = 0;
-    encoder->readRegister(AS5048_REG_CLEAR_ERROR, &error);
+    encoder->readRegister(AS5048_REG_CLEAR_ERROR, error);
 
     vTaskDelay(pdMS_TO_TICKS(10));
     motorDriver->modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);

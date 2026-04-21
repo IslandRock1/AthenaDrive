@@ -9,7 +9,7 @@
 
 class DRV8323 : public BaseSPI {
 public:
-    esp_err_t readRegister(uint8_t address, uint16_t &data) override;
-    esp_err_t writeRegister(uint8_t address, uint16_t data) override;
-    esp_err_t modifyBits(uint8_t address, uint16_t mask, uint16_t value) override;
+    esp_err_t readRegister(uint16_t address, uint16_t &data) override;
+    esp_err_t writeRegister(uint16_t address, uint16_t data) override;
+    esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value) override;
 };
