@@ -23,27 +23,6 @@ static uint16_t applyParity(uint16_t word)
     return word;
 }
 
-// AS5048::AS5048(encoderConfig &config)
-//     : _spiHost(config.spiHost), _spiDevice(nullptr) {
-    
-//     spi_device_interface_config_t devConfig = {
-//         .command_bits   = 0,
-//         .address_bits   = 0,
-//         .dummy_bits     = 0,
-//         .mode           = 3,
-//         .cs_ena_posttrans = 1,
-//         .clock_speed_hz = config.spiClockHz > 0 ? config.spiClockHz : 1000000,
-//         .spics_io_num   = config.cs,
-//         .queue_size     = 1,
-//     };
-
-//     esp_err_t err = spi_bus_add_device(config.spiHost, &devConfig, &_spiDevice);
-//     if (err != ESP_OK) {
-//         _spiDevice = nullptr;
-//         ESP_LOGE("Encoder", "spi_bus_add_device failed: %s", esp_err_to_name(err));
-//     }
-// }
-
 esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
     uint16_t rawAngle = 0;
     esp_err_t err = readRegister(AS5048_REG_ANGLE, rawAngle);
