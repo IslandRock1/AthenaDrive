@@ -42,12 +42,14 @@ spiOut spi_stuff() {
     };
     esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
 
-    drvConfig configDrv = {
+    SpiConfig configDRV = {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_MOTOR_DRIVER,
-        .spiClockHz = 100000,
+        .spiClockHz = 1000000,
+        .mode = 1,
     };
-    auto motorDriver = new DRV8323(configDrv);
+    auto motorDriver = new DRV8323;
+    motorDriver->begin(configDRV);
 
     encoderConfig configEnc = {
         .spiHost = SPI2_HOST,
@@ -63,7 +65,7 @@ spiOut spi_stuff() {
     motorDriver->modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
     vTaskDelay(pdMS_TO_TICKS(10));
     uint16_t val = 0;
-    motorDriver->readRegister(0x02, &val);
+    motorDriver->readRegister(0x02, val);
 
     val &= ~(0b1100000);     // clear PWM_MODE
     val |=  (0b0100000);      // set 3x PWM
@@ -72,9 +74,9 @@ spiOut spi_stuff() {
     vTaskDelay(pdMS_TO_TICKS(10));
 
     uint16_t mdrvData = 0;
-    motorDriver->readRegister(0x02, &mdrvData);
+    motorDriver->readRegister(0x02, mdrvData);
     printf("Got %i from motordriver.\n", mdrvData);
-    motorDriver->readRegister(0x06, &mdrvData);
+    motorDriver->readRegister(0x06, mdrvData);
     printf("Got %i from motordriver.\n", mdrvData);
     vTaskDelay(pdMS_TO_TICKS(3 * 1000));
 
