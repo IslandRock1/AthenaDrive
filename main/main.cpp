@@ -32,12 +32,7 @@ constexpr float PI_DIV_2 = PI_CONST/ 2.0f;
 constexpr float PI_7_DIV_6 = 7.0f * PI_CONST / 6.0f;
 constexpr float PI_DIV_6 = PI_CONST / 6.0f;
 
-struct spiOut {
-    DRV8323 *motorDriver;
-    AS5048 *encoder;
-};
-
-spiOut spi_stuff() {
+void setupSpiBus() {
     spi_bus_config_t busCfg = {
         .mosi_io_num   = SPI_MOSI_0,
         .miso_io_num   = SPI_MISO_0,
@@ -47,19 +42,31 @@ spiOut spi_stuff() {
         .max_transfer_sz = 2,
     };
     esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
+}
 
-    drvConfig configDrv = {
+drvConfig getDrvConfig() {
+    return {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_MOTOR_DRIVER,
         .spiClockHz = 100000,
     };
-    auto motorDriver = new DRV8323(configDrv);
+}
 
-    encoderConfig configEnc = {
+encoderConfig getEncConfig() {
+    return {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_ENCODER,
         .spiClockHz = 10 * 000000,
     };
+}
+
+spiOut spi_stuff() {
+    
+
+    auto drcCfg = getDrvConfig();
+    auto motorDriver = new DRV8323(drcCfg);
+
+    
     auto encoder = new AS5048(configEnc);
 
     uint16_t error = 0;
