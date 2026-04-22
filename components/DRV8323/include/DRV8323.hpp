@@ -7,6 +7,12 @@
 
 #include "BaseSPI.hpp"
 
+struct MotorDriverConfig : public SpiConfig {
+    gpio_num_t A_LOW;
+    gpio_num_t B_LOW;
+    gpio_num_t C_LOW;
+}
+
 class DRV8323 : public BaseSPI {
 public:
     esp_err_t readRegister(uint16_t address, uint16_t &data) override;

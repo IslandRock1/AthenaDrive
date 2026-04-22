@@ -20,7 +20,7 @@ public:
     esp_err_t begin(SpiConfig config);
     virtual esp_err_t readRegister(uint16_t address, uint16_t &data) = 0;
     virtual esp_err_t writeRegister(uint16_t address, uint16_t data) = 0;
-    virtual esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value) = 0;
+    esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value);
 
 protected:
     spi_device_handle_t _spiDevice = nullptr;

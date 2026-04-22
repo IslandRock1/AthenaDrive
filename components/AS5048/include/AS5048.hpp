@@ -6,6 +6,8 @@
 #include "driver/gpio.h"
 #include "BaseSPI.hpp"
 
+struct EncoderConfig : public SpiConfig {}
+
 class AS5048 : public BaseSPI {
 public:
 

@@ -13,10 +13,7 @@
 #include "PID.hpp"
 #include "SerialComm.hpp"
 
-#include "DRV8323.hpp"
-#include "DRV8323_Registers.hpp"
-#include "AS5048.hpp"
-#include "AS5048_Registers.hpp"
+#include "SpiManagerPrimary.hpp"
 #include "MCPWM.hpp"
 
 constexpr float PI_CONST = 3.1415926535897f;
@@ -25,65 +22,41 @@ constexpr float PI_DIV_2 = PI_CONST/ 2.0f;
 constexpr float PI_7_DIV_6 = 7.0f * PI_CONST / 6.0f;
 constexpr float PI_DIV_6 = PI_CONST / 6.0f;
 
-struct spiOut {
-    DRV8323 *motorDriver;
-    AS5048 *encoder;
-};
-spiOut spiOutput{};
+SpiManagerPrimary spiManager;
 
-spiOut spi_stuff() {
-    spi_bus_config_t busCfg = {
-        .mosi_io_num   = SPI_MOSI_0,
-        .miso_io_num   = SPI_MISO_0,
-        .sclk_io_num   = SPI_CLK_0,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 2,
+esp_err_t spi_stuff() {
+    SpiConfigPrimary configPrimary = {
+        .MOSI = SPI_MOSI_0,
+        .MISO = SPI_MISO_0,
+        .CLK = SPI_CLK_0,
+        .CS_Encoder = CHIP_SELECT_ENCODER,
+        .CS_MotorDriver = CHIP_SELECT_MOTOR_DRIVER,
     };
-    esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
-
-    SpiConfig configEnc = {
-        .spiHost = SPI2_HOST,
-        .cs = CHIP_SELECT_ENCODER,
-        .spiClockHz = 1000 * 1000,
-        .mode = 3,
-    };
-    auto encoder = new AS5048;
-    encoder->begin(configEnc);
-
-    SpiConfig configDRV = {
-        .spiHost = SPI2_HOST,
-        .cs = CHIP_SELECT_MOTOR_DRIVER,
-        .spiClockHz = 100000,
-        .mode = 1,
-    };
-    auto motorDriver = new DRV8323;
-    motorDriver->begin(configDRV);
+    spiManager.begin(configPrimary);
 
     uint16_t error = 0;
-    encoder->readRegister(AS5048_REG_CLEAR_ERROR, error);
+    spiManager.encoder.readRegister(AS5048_REG_CLEAR_ERROR, error);
 
     vTaskDelay(pdMS_TO_TICKS(10));
-    motorDriver->modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
+    spiManager.motorDriver.modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
     vTaskDelay(pdMS_TO_TICKS(10));
     uint16_t val = 0;
-    motorDriver->readRegister(0x02, val);
+    spiManager.motorDriver.readRegister(0x02, val);
 
     val &= ~(0b1100000);     // clear PWM_MODE
     val |=  (0b0100000);      // set 3x PWM
 
-    motorDriver->writeRegister(0x02, val);
+    spiManager.motorDriver.writeRegister(0x02, val);
     vTaskDelay(pdMS_TO_TICKS(10));
 
     uint16_t mdrvData = 0;
-    motorDriver->readRegister(0x02, mdrvData);
+    spiManager.motorDriver.readRegister(0x02, mdrvData);
     printf("Got %i from motordriver.\n", mdrvData);
-    motorDriver->readRegister(0x06, mdrvData);
+    spiManager.motorDriver.readRegister(0x06, mdrvData);
     printf("Got %i from motordriver.\n", mdrvData);
     vTaskDelay(pdMS_TO_TICKS(3 * 1000));
 
-    spiOut out = spiOut{motorDriver, encoder};
-    return out;
+    return ESP_OK;
 }
 
 Mcpwm pwm_stuff() {
@@ -157,7 +130,7 @@ void realTimeTask(void *pvParameters) {
         static float sumLoopTime = 0;
         static float numLoops = 0;
 
-        spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
         rotationsGlob = rotations;
         atomic_store_float(&angleGlob, angle);
         atomic_store_float(&cumAngleGlob, cumAngle);
@@ -221,7 +194,7 @@ extern "C" void app_main(void)
 
     setupLowPins();
     mcpwm = pwm_stuff();
-    spiOutput = spi_stuff();
+    spi_stuff();
     mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
     enableLowPins();
 
@@ -236,7 +209,7 @@ extern "C" void app_main(void)
 
     for (int i = 0; i < 10; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
         numReadings += 1.0;
 
         sinSum += sin(angle);
