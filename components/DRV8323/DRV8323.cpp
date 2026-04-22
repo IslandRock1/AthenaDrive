@@ -2,6 +2,12 @@
 #include "DRV8323.hpp"
 #include "DRV8323_Registers.hpp"
 
+esp_err_t DRV8323::begin(MotorDriverConfig config) {
+    printf("A Pin: %i, B Pin: %i, C Pin: %i\n", config.LOW_A, config.LOW_B, config.LOW_C);
+    esp_err_t err = BaseSPI<MotorDriverConfig>::begin(config);
+    return err;
+}
+
 esp_err_t DRV8323::readRegister(uint16_t address, uint16_t &data) {
     uint16_t tx = DRV_SPI_READ | DRV_SPI_ADDR(address) | 0x0000;
     esp_err_t err = _spiTransfer16(tx, data);

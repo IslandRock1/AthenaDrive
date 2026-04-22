@@ -29,10 +29,15 @@ esp_err_t spi_stuff() {
         .MOSI = SPI_MOSI_0,
         .MISO = SPI_MISO_0,
         .CLK = SPI_CLK_0,
-        .CS_Encoder = CHIP_SELECT_ENCODER,
-        .CS_MotorDriver = CHIP_SELECT_MOTOR_DRIVER,
+        .SPI_HOST = SPI2_HOST,
     };
-    spiManager.begin(configPrimary);
+    spiManager.beginManager(configPrimary);
+
+    EncoderConfig configEnc(SPI2_HOST, CHIP_SELECT_ENCODER, 10000000, 3);
+    spiManager.beginEncoder(configEnc);
+
+    MotorDriverConfig configDrv(SPI2_HOST, CHIP_SELECT_MOTOR_DRIVER, 100000, 1, MOTOR_LOW_A, MOTOR_LOW_B, MOTOR_LOW_C);
+    spiManager.beginMotorDriver(configDrv);
 
     uint16_t error = 0;
     spiManager.encoder.readRegister(AS5048_REG_CLEAR_ERROR, error);
@@ -40,13 +45,7 @@ esp_err_t spi_stuff() {
     vTaskDelay(pdMS_TO_TICKS(10));
     spiManager.motorDriver.modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
     vTaskDelay(pdMS_TO_TICKS(10));
-    uint16_t val = 0;
-    spiManager.motorDriver.readRegister(0x02, val);
-
-    val &= ~(0b1100000);     // clear PWM_MODE
-    val |=  (0b0100000);      // set 3x PWM
-
-    spiManager.motorDriver.writeRegister(0x02, val);
+    spiManager.motorDriver.modifyBits(DRV_REG_DRIVER_CTRL, 0b1100000, 0b0100000);
     vTaskDelay(pdMS_TO_TICKS(10));
 
     uint16_t mdrvData = 0;
@@ -184,8 +183,13 @@ extern "C" void app_main(void)
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
 
     printf("Starting when getting power.\n");
-    while (i2cManager.getBusVoltage_mV() < 9000) {
+    int32_t voltage = i2cManager.getBusVoltage_mV();
+    int32_t testNum = 0;
+    while (voltage < 9000) {
+        testNum++;
+        printf("%li | Voltage: %li\n", testNum, voltage);
         vTaskDelay(pdMS_TO_TICKS(100));
+        voltage = i2cManager.getBusVoltage_mV();
     }
     // IT'S OVER NINE THOUSAND!!
     printf("Voltage: %li\n", i2cManager.getBusVoltage_mV());
@@ -246,6 +250,10 @@ extern "C" void app_main(void)
         i2cManager.writePin(MULTIPLEXER_LED1, !state);
         auto current = i2cManager.getCurrent_mA();
         
+        if (current > 2000) {
+            printf("Current at %li!\n", current);
+        }
+
         float velocity = atomic_load_float(&avgVelocityGlob);
         float torque = atomic_load_float(&avgStrenghtGlob);
         float looptime = atomic_load_float(&avgLoopTimeGlob);
@@ -285,7 +293,7 @@ extern "C" void app_main(void)
         }
 
         // serialCom.update();
-        printf("Position: %f\n", sensorData.position);
+        printf("Position: %f | Current: %li\n", sensorData.position, sensorData.current);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

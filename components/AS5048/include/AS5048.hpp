@@ -6,15 +6,17 @@
 #include "driver/gpio.h"
 #include "BaseSPI.hpp"
 
-struct EncoderConfig : public SpiConfig {}
+struct EncoderConfig : public SpiConfig {
+    EncoderConfig(spi_host_device_t spiHost, gpio_num_t cs, int spiClockHz, uint8_t mode)
+        : SpiConfig(spiHost, cs, spiClockHz, mode) {}
+};
 
-class AS5048 : public BaseSPI {
+class AS5048 : public BaseSPI<EncoderConfig> {
 public:
 
     esp_err_t update(int32_t &rotations, float &angle, float &cumAngle, float &velocity);
     esp_err_t readRegister(uint16_t address, uint16_t &data) override;
     esp_err_t writeRegister(uint16_t address, uint16_t data) override;
-    esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value) override;
 
 private:
 

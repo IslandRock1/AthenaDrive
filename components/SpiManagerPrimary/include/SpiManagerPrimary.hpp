@@ -11,14 +11,15 @@ struct SpiConfigPrimary {
     gpio_num_t MOSI;
     gpio_num_t MISO;
     gpio_num_t CLK;
-    
-    gpio_num_t CS_MotorDriver;
+    spi_host_device_t SPI_HOST;
 };
 
 class SpiManagerPrimary {
 public:
     SpiManagerPrimary() = default;
-    void begin(SpiConfigPrimary config);
+    void beginManager(SpiConfigPrimary config);
+    void beginEncoder(EncoderConfig config);
+    void beginMotorDriver(MotorDriverConfig config);
 
     AS5048 encoder;
     DRV8323 motorDriver;

@@ -11,7 +11,7 @@ struct SensorData {
     float position;
     float velocity;
     float torque;
-    float current;
+    int32_t current;
 };
 
 struct Command {

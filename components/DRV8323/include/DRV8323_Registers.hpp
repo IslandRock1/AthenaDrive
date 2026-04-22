@@ -44,7 +44,7 @@
 #define DRV_DC_BRAKE            (1 << 3)
 #define DRV_DC_CLR_FLT          (1 << 0)
 
-#define DRV_PWM_MODE_SHIFT      3
+#define DRV_PWM_MODE_SHIFT      5
 #define DRV_PWM_MODE_MASK       (0x3 << DRV_PWM_MODE_SHIFT)
 #define DRV_PWM_MODE_6X         (0x0 << DRV_PWM_MODE_SHIFT)
 #define DRV_PWM_MODE_3X         (0x1 << DRV_PWM_MODE_SHIFT)

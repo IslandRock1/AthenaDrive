@@ -99,13 +99,3 @@ esp_err_t AS5048::writeRegister(uint16_t address, uint16_t data) {
     err = _spiTransfer16(data_frame, response1);
     return err;
 }
-
-esp_err_t AS5048::modifyBits(uint16_t address, uint16_t mask, uint16_t value) {
-    uint16_t current = 0;
-    esp_err_t err = readRegister(address, current);
-    if (err != ESP_OK) { return err; }
-
-    uint16_t newValue = (current & ~mask) | (value & mask);
-    err = writeRegister(address, newValue);
-    return err;
-}
