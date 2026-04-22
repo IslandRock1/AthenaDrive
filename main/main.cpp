@@ -42,23 +42,23 @@ spiOut spi_stuff() {
     };
     esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
 
-    SpiConfig configDRV = {
-        .spiHost = SPI2_HOST,
-        .cs = CHIP_SELECT_MOTOR_DRIVER,
-        .spiClockHz = 1000000,
-        .mode = 1,
-    };
-    auto motorDriver = new DRV8323;
-    motorDriver->begin(configDRV);
-
     SpiConfig configEnc = {
         .spiHost = SPI2_HOST,
         .cs = CHIP_SELECT_ENCODER,
-        .spiClockHz = 10 * 1000 * 1000,
+        .spiClockHz = 1000 * 1000,
         .mode = 3,
     };
     auto encoder = new AS5048;
     encoder->begin(configEnc);
+
+    SpiConfig configDRV = {
+        .spiHost = SPI2_HOST,
+        .cs = CHIP_SELECT_MOTOR_DRIVER,
+        .spiClockHz = 100000,
+        .mode = 1,
+    };
+    auto motorDriver = new DRV8323;
+    motorDriver->begin(configDRV);
 
     uint16_t error = 0;
     encoder->readRegister(AS5048_REG_CLEAR_ERROR, error);
@@ -115,42 +115,6 @@ void enableLowPins() {
     gpio_set_level(MOTOR_LOW_A, true);
     gpio_set_level(MOTOR_LOW_B, true);
     gpio_set_level(MOTOR_LOW_C, true);
-}
-
-Output setPWM(Mcpwm &mcpwm, std::string direction) {
-    float vA = 0.5;
-    float vB = 0.5;
-    float vC = 0.5;
-    float size = 0.050;
-    
-    if (direction == "A+") {
-        vA += size;
-        vB -= size;
-        vC -= size;
-    } else if (direction == "A-") {
-        vA -= size;
-        vB += size;
-        vC += size;
-    } else if (direction == "B+") {
-        vA -= size;
-        vB += size;
-        vC -= size;
-    } else if (direction == "B-") {
-        vA += size;
-        vB -= size;
-        vC += size;
-    } else if (direction == "C+") {
-        vA -= size;
-        vB -= size;
-        vC += size;
-    } else if (direction == "C-") {
-        vA += size;
-        vB += size;
-        vC -= size;
-    }
-
-    mcpwm.set_phase_voltages(vA, vB, vC);
-    return {vA, vB, vC};
 }
 
 static inline void atomic_store_float(atomic_uint *a, float f) {
@@ -258,7 +222,7 @@ extern "C" void app_main(void)
     setupLowPins();
     mcpwm = pwm_stuff();
     spiOutput = spi_stuff();
-    setPWM(mcpwm, "0");
+    mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
     enableLowPins();
 
     mcpwm.set_phase_voltages(0.56, 0.47, 0.47);
@@ -347,7 +311,8 @@ extern "C" void app_main(void)
             }
         }
 
-        serialCom.update();
+        // serialCom.update();
+        printf("Position: %f\n", sensorData.position);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

@@ -35,10 +35,7 @@ esp_err_t BaseSPI::_spiTransfer16(uint16_t tx, uint16_t &rx) {
     };
 
     esp_err_t err = spi_device_transmit(_spiDevice, &spiTransaction);
-
-    if (rx) {
-        rx = ((uint16_t)rxBuffer[0] << 8) | rxBuffer[1];
-    }
+    rx = ((uint16_t)rxBuffer[0] << 8) | rxBuffer[1];
 
     return err;
 }
