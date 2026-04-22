@@ -238,6 +238,12 @@ void realTimeTask(void *pvParameters) {
 
 extern "C" void app_main(void)
 {
+
+    mcpwm = pwm_stuff();
+    mcpwm.set_phase_voltages(0.5f, 0.5f, 0.5f);
+
+    return;
+
     I2CManager i2cManager{I2C_SDA, I2C_SCL};
     i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
