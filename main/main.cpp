@@ -13,10 +13,7 @@
 #include "PID.hpp"
 #include "SerialComm.hpp"
 
-#include "DRV8323.hpp"
-#include "DRV8323_Registers.hpp"
-#include "AS5048.hpp"
-#include "AS5048_Registers.hpp"
+#include "SpiManagerPrimary.hpp"
 #include "MCPWM.hpp"
 
 constexpr float PI_CONST = 3.1415926535897f;
@@ -25,61 +22,24 @@ constexpr float PI_DIV_2 = PI_CONST/ 2.0f;
 constexpr float PI_7_DIV_6 = 7.0f * PI_CONST / 6.0f;
 constexpr float PI_DIV_6 = PI_CONST / 6.0f;
 
-struct spiOut {
-    DRV8323 *motorDriver;
-    AS5048 *encoder;
-};
-spiOut spiOutput{};
+SpiManagerPrimary spiManager;
 
-spiOut spi_stuff() {
-    spi_bus_config_t busCfg = {
-        .mosi_io_num   = SPI_MOSI_0,
-        .miso_io_num   = SPI_MISO_0,
-        .sclk_io_num   = SPI_CLK_0,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 2,
+esp_err_t spi_stuff() {
+    SpiConfigPrimary configPrimary = {
+        .MOSI = SPI_MOSI_0,
+        .MISO = SPI_MISO_0,
+        .CLK = SPI_CLK_0,
+        .SPI_HOST = SPI2_HOST,
     };
-    esp_err_t err = spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
+    spiManager.beginManager(configPrimary);
 
-    drvConfig configDrv = {
-        .spiHost = SPI2_HOST,
-        .cs = CHIP_SELECT_MOTOR_DRIVER,
-        .spiClockHz = 100000,
-    };
-    auto motorDriver = new DRV8323(configDrv);
+    EncoderConfig configEnc(SPI2_HOST, CHIP_SELECT_ENCODER, 10000000, 3);
+    spiManager.beginEncoder(configEnc);
 
-    encoderConfig configEnc = {
-        .spiHost = SPI2_HOST,
-        .cs = CHIP_SELECT_ENCODER,
-        .spiClockHz = 100000,
-    };
-    auto encoder = new AS5048(configEnc);
+    MotorDriverConfig configDrv(SPI2_HOST, CHIP_SELECT_MOTOR_DRIVER, 100000, 1, MOTOR_LOW_A, MOTOR_LOW_B, MOTOR_LOW_C);
+    spiManager.beginMotorDriver(configDrv);
 
-    uint16_t error = 0;
-    encoder->readRegister(AS5048_REG_CLEAR_ERROR, &error);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-    motorDriver->modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    uint16_t val = 0;
-    motorDriver->readRegister(0x02, &val);
-
-    val &= ~(0b1100000);     // clear PWM_MODE
-    val |=  (0b0100000);      // set 3x PWM
-
-    motorDriver->writeRegister(0x02, val);
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    uint16_t mdrvData = 0;
-    motorDriver->readRegister(0x02, &mdrvData);
-    printf("Got %i from motordriver.\n", mdrvData);
-    motorDriver->readRegister(0x06, &mdrvData);
-    printf("Got %i from motordriver.\n", mdrvData);
-    vTaskDelay(pdMS_TO_TICKS(3 * 1000));
-
-    spiOut out = spiOut{motorDriver, encoder};
-    return out;
+    return ESP_OK;
 }
 
 Mcpwm pwm_stuff() {
@@ -111,42 +71,6 @@ void enableLowPins() {
     gpio_set_level(MOTOR_LOW_A, true);
     gpio_set_level(MOTOR_LOW_B, true);
     gpio_set_level(MOTOR_LOW_C, true);
-}
-
-Output setPWM(Mcpwm &mcpwm, std::string direction) {
-    float vA = 0.5;
-    float vB = 0.5;
-    float vC = 0.5;
-    float size = 0.050;
-    
-    if (direction == "A+") {
-        vA += size;
-        vB -= size;
-        vC -= size;
-    } else if (direction == "A-") {
-        vA -= size;
-        vB += size;
-        vC += size;
-    } else if (direction == "B+") {
-        vA -= size;
-        vB += size;
-        vC -= size;
-    } else if (direction == "B-") {
-        vA += size;
-        vB -= size;
-        vC += size;
-    } else if (direction == "C+") {
-        vA -= size;
-        vB -= size;
-        vC += size;
-    } else if (direction == "C-") {
-        vA += size;
-        vB += size;
-        vC -= size;
-    }
-
-    mcpwm.set_phase_voltages(vA, vB, vC);
-    return {vA, vB, vC};
 }
 
 static inline void atomic_store_float(atomic_uint *a, float f) {
@@ -189,7 +113,7 @@ void realTimeTask(void *pvParameters) {
         static float sumLoopTime = 0;
         static float numLoops = 0;
 
-        spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
         rotationsGlob = rotations;
         atomic_store_float(&angleGlob, angle);
         atomic_store_float(&cumAngleGlob, cumAngle);
@@ -211,7 +135,7 @@ void realTimeTask(void *pvParameters) {
         output.phaseB = strenght * sin(elPos + PI_7_DIV_6 + posDelta);
         output.phaseC = strenght * sin(elPos - PI_DIV_6 + posDelta);
 
-        auto err = mcpwm.set_phase_voltages(0.5 + output.phaseA, 0.5 + output.phaseB, 0.5 + output.phaseC);
+        auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
         
         int64_t endTime = esp_timer_get_time();
         sumLoopTime += (endTime - startTime);
@@ -243,21 +167,25 @@ extern "C" void app_main(void)
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
 
     printf("Starting when getting power.\n");
-    while (i2cManager.getBusVoltage_mV() < 9000) {
+    int32_t voltage = i2cManager.getBusVoltage_mV();
+    int32_t testNum = 0;
+    while (voltage < 9000) {
+        testNum++;
+        printf("%li | Voltage: %li\n", testNum, voltage);
         vTaskDelay(pdMS_TO_TICKS(100));
+        voltage = i2cManager.getBusVoltage_mV();
     }
     // IT'S OVER NINE THOUSAND!!
     printf("Voltage: %li\n", i2cManager.getBusVoltage_mV());
     printf("Starting in 1 second.\n");
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    setupLowPins();
+    spi_stuff();
     mcpwm = pwm_stuff();
-    spiOutput = spi_stuff();
-    setPWM(mcpwm, "0");
-    enableLowPins();
+    mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
+    spiManager.motorDriver.enable();
 
-    mcpwm.set_phase_voltages(0.56, 0.47, 0.47);
+    mcpwm.set_phase_voltages(0.06, -0.03, -0.03);
     vTaskDelay(pdMS_TO_TICKS(1000));
     float numReadings = 0.0f;
     float sinSum = 0.0f;
@@ -268,7 +196,7 @@ extern "C" void app_main(void)
 
     for (int i = 0; i < 10; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        spiOutput.encoder->update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
         numReadings += 1.0;
 
         sinSum += sin(angle);
@@ -276,7 +204,7 @@ extern "C" void app_main(void)
 
         auto current = i2cManager.getCurrent_mA();
         if (current > 1000) {
-            mcpwm.set_phase_voltages(0.5, 0.5, 0.5);
+            mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
             printf("Too much current: %li\n", current);
             return;
         }
@@ -305,6 +233,10 @@ extern "C" void app_main(void)
         i2cManager.writePin(MULTIPLEXER_LED1, !state);
         auto current = i2cManager.getCurrent_mA();
         
+        if (current > 2000) {
+            printf("Current at %li!\n", current);
+        }
+
         float velocity = atomic_load_float(&avgVelocityGlob);
         float torque = atomic_load_float(&avgStrenghtGlob);
         float looptime = atomic_load_float(&avgLoopTimeGlob);
@@ -343,7 +275,8 @@ extern "C" void app_main(void)
             }
         }
 
-        serialCom.update();
+        // serialCom.update();
+        printf("Position: %f | Current: %li\n", sensorData.position, sensorData.current);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
