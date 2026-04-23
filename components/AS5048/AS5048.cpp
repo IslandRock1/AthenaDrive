@@ -23,6 +23,15 @@ static uint16_t applyParity(uint16_t word)
     return word;
 }
 
+esp_err_t AS5048::begin(EncoderConfig config) {
+    esp_err_t err = BaseSPI<EncoderConfig>::begin(config);
+
+    uint16_t error = 0;
+    readRegister(AS5048_REG_CLEAR_ERROR, error);
+
+    return err;
+}
+
 esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
     uint16_t rawAngle = 0;
     esp_err_t err = readRegister(AS5048_REG_ANGLE, rawAngle);

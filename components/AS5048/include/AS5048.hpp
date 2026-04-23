@@ -13,7 +13,7 @@ struct EncoderConfig : public SpiConfig {
 
 class AS5048 : public BaseSPI<EncoderConfig> {
 public:
-
+    esp_err_t begin(EncoderConfig config);
     esp_err_t update(int32_t &rotations, float &angle, float &cumAngle, float &velocity);
     esp_err_t readRegister(uint16_t address, uint16_t &data) override;
     esp_err_t writeRegister(uint16_t address, uint16_t data) override;

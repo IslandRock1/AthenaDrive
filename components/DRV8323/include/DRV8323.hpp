@@ -26,6 +26,12 @@ struct MotorDriverConfig : public SpiConfig {
 class DRV8323 : public BaseSPI<MotorDriverConfig> {
 public:
     esp_err_t begin(MotorDriverConfig config);
+    void enable();
     esp_err_t readRegister(uint16_t address, uint16_t &data) override;
     esp_err_t writeRegister(uint16_t address, uint16_t data) override;
+
+private:
+    gpio_num_t LOW_A;
+    gpio_num_t LOW_B;
+    gpio_num_t LOW_C;
 };

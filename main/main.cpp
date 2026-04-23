@@ -39,22 +39,6 @@ esp_err_t spi_stuff() {
     MotorDriverConfig configDrv(SPI2_HOST, CHIP_SELECT_MOTOR_DRIVER, 100000, 1, MOTOR_LOW_A, MOTOR_LOW_B, MOTOR_LOW_C);
     spiManager.beginMotorDriver(configDrv);
 
-    uint16_t error = 0;
-    spiManager.encoder.readRegister(AS5048_REG_CLEAR_ERROR, error);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-    spiManager.motorDriver.modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    spiManager.motorDriver.modifyBits(DRV_REG_DRIVER_CTRL, 0b1100000, 0b0100000);
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    uint16_t mdrvData = 0;
-    spiManager.motorDriver.readRegister(0x02, mdrvData);
-    printf("Got %i from motordriver.\n", mdrvData);
-    spiManager.motorDriver.readRegister(0x06, mdrvData);
-    printf("Got %i from motordriver.\n", mdrvData);
-    vTaskDelay(pdMS_TO_TICKS(3 * 1000));
-
     return ESP_OK;
 }
 
@@ -151,7 +135,7 @@ void realTimeTask(void *pvParameters) {
         output.phaseB = strenght * sin(elPos + PI_7_DIV_6 + posDelta);
         output.phaseC = strenght * sin(elPos - PI_DIV_6 + posDelta);
 
-        auto err = mcpwm.set_phase_voltages(0.5 + output.phaseA, 0.5 + output.phaseB, 0.5 + output.phaseC);
+        auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
         
         int64_t endTime = esp_timer_get_time();
         sumLoopTime += (endTime - startTime);
@@ -196,13 +180,12 @@ extern "C" void app_main(void)
     printf("Starting in 1 second.\n");
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    setupLowPins();
-    mcpwm = pwm_stuff();
     spi_stuff();
+    mcpwm = pwm_stuff();
     mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
-    enableLowPins();
+    spiManager.motorDriver.enable();
 
-    mcpwm.set_phase_voltages(0.56, 0.47, 0.47);
+    mcpwm.set_phase_voltages(0.06, -0.03, -0.03);
     vTaskDelay(pdMS_TO_TICKS(1000));
     float numReadings = 0.0f;
     float sinSum = 0.0f;
@@ -221,7 +204,7 @@ extern "C" void app_main(void)
 
         auto current = i2cManager.getCurrent_mA();
         if (current > 1000) {
-            mcpwm.set_phase_voltages(0.5, 0.5, 0.5);
+            mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
             printf("Too much current: %li\n", current);
             return;
         }

@@ -1,6 +1,11 @@
 #pragma once
 #include <stdint.h>
 
+/*
+This file is wrong! (I think)
+Atleast some of it is wrong.
+*/
+
 // Register address
 #define DRV_REG_FAULT_STATUS1   0x00  // R   – Fault Status 1
 #define DRV_REG_VGS_STATUS2     0x01  // R   – VGS Status 2
