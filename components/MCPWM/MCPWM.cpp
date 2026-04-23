@@ -1,6 +1,9 @@
+// Code from examples, Espressif:
+// https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/mcpwm.html
 
 #include "MCPWM.hpp"
 #include "esp_check.h"
+#include <math.h>
 
 static const char* TAG = "Mcpwm";
 
@@ -9,13 +12,13 @@ esp_err_t Mcpwm::init(const Config& cfg) {
     if (_initialised) return ESP_ERR_INVALID_STATE;
 
     _cfg = cfg;
+    // centre-aligned PWM in UP_DOWN mode
     _period_tics = _cfg.timer_resolution_hz / (2 * _cfg.pwm_freq_hz);
     if (_period_tics < 20) {
         ESP_LOGE(TAG, "Period too small: %lu ticks", _period_tics);
         return ESP_ERR_INVALID_ARG;
     }
 
-    // timer
     mcpwm_timer_config_t timer_cfg = {};
     timer_cfg.group_id = _cfg.group_id;
     timer_cfg.clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT;
@@ -29,8 +32,6 @@ esp_err_t Mcpwm::init(const Config& cfg) {
     ESP_RETURN_ON_ERROR(init_single_phase(phase_a, _cfg.pwm_a_gpio), TAG, "phase A failed");
     ESP_RETURN_ON_ERROR(init_single_phase(phase_b, _cfg.pwm_b_gpio), TAG, "phase B failed");
     ESP_RETURN_ON_ERROR(init_single_phase(phase_c, _cfg.pwm_c_gpio), TAG, "phase C failed");
-
-    ESP_RETURN_ON_ERROR(force_all_low(true), TAG, "force all low failed");
 
     ESP_RETURN_ON_ERROR(mcpwm_timer_enable(_timer), TAG, "timer enable failed");
     ESP_RETURN_ON_ERROR(mcpwm_timer_start_stop(_timer, MCPWM_TIMER_START_NO_STOP), TAG, "timer start failed");
@@ -48,39 +49,31 @@ esp_err_t Mcpwm::init(const Config& cfg) {
 esp_err_t Mcpwm::init_single_phase(Phase& phase, gpio_num_t pwm_gpio) {
     mcpwm_operator_config_t oper_cfg = {};
     oper_cfg.group_id = _cfg.group_id;
-    oper_cfg.flags.update_gen_action_on_tez = true;
-    oper_cfg.flags.update_gen_action_on_tep = true;
-    oper_cfg.flags.update_dead_time_on_tez = true;
-    oper_cfg.flags.update_dead_time_on_tep = true;
-
     ESP_RETURN_ON_ERROR(mcpwm_new_operator(&oper_cfg, &phase.oper), TAG, "operator failed");
-
+    
     ESP_RETURN_ON_ERROR(mcpwm_operator_connect_timer(phase.oper, _timer), TAG, "connect timer failed");
 
     // comp with shadow update on both zero and peak
     mcpwm_comparator_config_t cmp_cfg = {};
     cmp_cfg.flags.update_cmp_on_tez = true;
     cmp_cfg.flags.update_cmp_on_tep = true;
-
     ESP_RETURN_ON_ERROR(mcpwm_new_comparator(phase.oper, &cmp_cfg, &phase.cmpr), TAG, "comparator failed");
 
     mcpwm_generator_config_t gen_cfg = {};
     gen_cfg.gen_gpio_num = pwm_gpio;
+    ESP_RETURN_ON_ERROR(mcpwm_new_generator(phase.oper, &gen_cfg, &phase.gen), TAG, "generator failed");
 
-    ESP_RETURN_ON_ERROR(mcpwm_new_generator(phase.oper, &gen_cfg, &phase.gen), TAG, "gen failed");
-
-    // center aligned pwm
+    // symmetric centre-aligned PWM:
+    // - on UP compare: set HIGH
+    // - on DOWN compare: set LOW
     ESP_RETURN_ON_ERROR(mcpwm_generator_set_actions_on_compare_event(phase.gen,
         MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, phase.cmpr, MCPWM_GEN_ACTION_HIGH),
         MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_DOWN, phase.cmpr, MCPWM_GEN_ACTION_LOW),
-        MCPWM_GEN_COMPARE_EVENT_ACTION_END()), TAG, "set compare actions failed");
+        MCPWM_GEN_COMPARE_EVENT_ACTION_END()), TAG, "compare actions failed");
 
     // set a safe init cmp value away from 0 and peak
     uint32_t safe_init_cmp = safe_compare_from_normalised(0.5f);
     ESP_RETURN_ON_ERROR(mcpwm_comparator_set_compare_value(phase.cmpr, safe_init_cmp), TAG, "cmp init failed");
-
-    // hold output LOW until enabled
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase.gen, 0, true), TAG, "force low failed");
     
     return ESP_OK;
 }
@@ -104,28 +97,24 @@ esp_err_t Mcpwm::set_phase_voltages(float va, float vb, float vc) {
 }
 
 esp_err_t Mcpwm::enable() {
-    if (!_initialised) return ESP_ERR_INVALID_STATE;
+    if (!_initialised) { return ESP_ERR_INVALID_STATE; }
 
-    set_phase_voltages(0.0f, 0.0f, 0.0f);
-
-    if (_cfg.n_sleep_gpio != GPIO_NUM_NC) {
-        gpio_set_level(_cfg.n_sleep_gpio, 1);
-    }
-
-    // release software force so generator actions control the outputs again
-    ESP_RETURN_ON_ERROR(force_all_low(false), TAG, "release force low failed");
+    if (_cfg.n_sleep_gpio != GPIO_NUM_NC) { gpio_set_level(_cfg.n_sleep_gpio, 1); }
 
     _enabled = true;
+
+    ESP_RETURN_ON_ERROR(set_phase_voltages(0.0f, 0.0f, 0.0f), TAG, "set neutral duty in enable failed");
+
     return ESP_OK;
 }
 
 esp_err_t Mcpwm::disable() {
     if (!_initialised) return ESP_ERR_INVALID_STATE;
-    ESP_RETURN_ON_ERROR(force_all_low(true), TAG, "disable all_off failed");
+
+    _enabled = false;
 
     if (_cfg.n_sleep_gpio != GPIO_NUM_NC) { gpio_set_level(_cfg.n_sleep_gpio, 0); }
     
-    _enabled = false;
     return ESP_OK;
 }
 
@@ -133,26 +122,12 @@ uint32_t Mcpwm::safe_compare_from_normalised(float normalised) const {
     float n = fminf(fmaxf(normalised, 0.0f), 1.0f);
 
     uint32_t peak = _period_tics / 2;
-    uint32_t max_cmp = peak - 1;
-    if (max_cmp < 3) { return 1; }
+    if (peak <= 2) return 1;
 
-    uint32_t cmp = (uint32_t)lroundf(n * (float)max_cmp);
-    if (cmp < 1) { cmp = 1; }
-    if (cmp > (max_cmp - 1)) { cmp = max_cmp - 1; }
+    uint32_t cmp = (uint32_t)lroundf(n * (float)peak);
+
+    if (cmp == 0) cmp = 1;
+    if (cmp >= peak) cmp = peak - 1;
 
     return cmp;
-}
-
-// if dead time is added, this will fuck with this function. (Known issue for Espressif)
-esp_err_t Mcpwm::force_all_low(bool hold_on) {
-    if (hold_on) {
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_a.gen, 0, true), TAG, "force A failed");
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_b.gen, 0, true), TAG, "force B failed");
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_c.gen, 0, true), TAG, "force C failed");
-    } else {
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_a.gen, -1, false), TAG, "release A failed");
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_b.gen, -1, false), TAG, "release B failed");
-    ESP_RETURN_ON_ERROR(mcpwm_generator_set_force_level(phase_c.gen, -1, false), TAG, "release C failed");
-    }
-    return ESP_OK;
 }

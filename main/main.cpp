@@ -241,6 +241,9 @@ extern "C" void app_main(void)
 
     mcpwm = pwm_stuff();
     mcpwm.set_phase_voltages(0.5f, 0.5f, 0.5f);
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     return;
 
