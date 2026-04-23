@@ -23,8 +23,8 @@ public:
 	Output update(float iqRef, float electricalPosition, float motorVelocity, float Ia, float Ib);
 private:
 	Output _output{};
-	PI _dReg;
-	PI _qReg;
+	PI_Reg _dReg;
+	PI_Reg _qReg;
 
 	float _clarkeIa = 0.0f;
 	float _clarkeIb = 0.0f;
