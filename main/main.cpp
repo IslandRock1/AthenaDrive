@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_timer.h"
+#include "driver/gptimer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "stdatomic.h"
@@ -21,6 +23,9 @@ constexpr float TWO_PI = 2.0f * PI_CONST;
 constexpr float PI_DIV_2 = PI_CONST/ 2.0f;
 constexpr float PI_7_DIV_6 = 7.0f * PI_CONST / 6.0f;
 constexpr float PI_DIV_6 = PI_CONST / 6.0f;
+
+gptimer_handle_t timer = NULL;
+TaskHandle_t control_task_handle = NULL;
 
 SpiManagerPrimary spiManager;
 
@@ -58,21 +63,6 @@ Mcpwm pwm_stuff() {
 }
 Mcpwm mcpwm;
 
-void setupLowPins() {
-    gpio_set_direction(MOTOR_LOW_A, GPIO_MODE_OUTPUT);
-    gpio_set_direction(MOTOR_LOW_B, GPIO_MODE_OUTPUT);
-    gpio_set_direction(MOTOR_LOW_C, GPIO_MODE_OUTPUT);
-    gpio_set_level(MOTOR_LOW_A, false);
-    gpio_set_level(MOTOR_LOW_B, false);
-    gpio_set_level(MOTOR_LOW_C, false);
-}
-
-void enableLowPins() {
-    gpio_set_level(MOTOR_LOW_A, true);
-    gpio_set_level(MOTOR_LOW_B, true);
-    gpio_set_level(MOTOR_LOW_C, true);
-}
-
 static inline void atomic_store_float(atomic_uint *a, float f) {
     uint32_t bits;
     memcpy(&bits, &f, sizeof(bits));
@@ -92,100 +82,79 @@ atomic_uint cumAngleGlob = 0.0;
 atomic_uint velocityGlob = 0.0;
 
 atomic_uint avgVelocityGlob = 0;
-atomic_uint avgStrenghtGlob = 0;
+atomic_uint avgStrengthGlob = 0;
 atomic_uint avgLoopTimeGlob = 0;
 
 float angleOffset = 0;
+atomic_uint drivingModeGlob = 0;
 
-PID_Reg velocityPID{0.005, 0.0, 0.0};
+PI_Reg torquePI{0.0, 0.0};
+atomic_uint torqueSetpointGlob = 0.0;
+atomic_uint updateFreqTorqueGlob = 1;
+
+PID_Reg velocityPID{0.0, 0.0, 0.0};
 atomic_uint velocitySetpointGlob = 0.0;
+atomic_uint updateFreqVelocityGlob = 10;
 
-void realTimeTask(void *pvParameters) {
+PID_Reg positionPID{0.0, 0.0, 0.0};
+atomic_uint positionSetpointGlob = 0.0;
+atomic_uint updateFreqPositionGlob = 100;
 
-    while (1) {
-        int64_t startTime = esp_timer_get_time();
+static bool IRAM_ATTR timer_callback(
+    gptimer_handle_t timer,
+    const gptimer_alarm_event_data_t *edata,
+    void *user_ctx)
+{
+    BaseType_t high_task_woken = pdFALSE;
 
-        static int32_t rotations;
-        static float angle, cumAngle, velocity;
+    TaskHandle_t task = (TaskHandle_t) user_ctx;
 
-        static float sumVelocity = 0;
-        static float sumStrength = 0;
-        static float sumLoopTime = 0;
-        static float numLoops = 0;
+    vTaskNotifyGiveFromISR(task, &high_task_woken);
 
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
-        rotationsGlob = rotations;
-        atomic_store_float(&angleGlob, angle);
-        atomic_store_float(&cumAngleGlob, cumAngle);
-
-        sumVelocity += velocity;
-        angle -= angleOffset;
-        if (angle < 0.0) { angle += TWO_PI; }
-        float elPos = fmodf((angle * 20.0f), TWO_PI);
-        Output output{};
-
-        float velSetpoint = atomic_load_float(&velocitySetpointGlob);
-        velocityPID.setSetpoint(velSetpoint);
-        float strenght = velocityPID.update(velocity, 1.0);
-        strenght = std::max(-0.4f, std::min(0.4f, strenght));
-
-        sumStrength += strenght;
-        float posDelta = PI_DIV_2;
-        output.phaseA = strenght * sin(elPos + PI_DIV_2 + posDelta);
-        output.phaseB = strenght * sin(elPos + PI_7_DIV_6 + posDelta);
-        output.phaseC = strenght * sin(elPos - PI_DIV_6 + posDelta);
-
-        auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
-        
-        int64_t endTime = esp_timer_get_time();
-        sumLoopTime += (endTime - startTime);
-        numLoops++;
-        
-        if (numLoops == 1000) {
-            float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
-            float avgVelocity = sumVelocity / static_cast<float>(numLoops);
-            float avgStrenght = sumStrength / static_cast<float>(numLoops);
-
-            atomic_store_float(&avgLoopTimeGlob, avgLoopTime);
-            atomic_store_float(&avgVelocityGlob, avgVelocity);
-            atomic_store_float(&avgStrenghtGlob, avgStrenght);
-
-            sumLoopTime = 0;
-            sumVelocity = 0;
-            sumStrength = 0;
-            numLoops = 0;
-        }
-    }
-
-    vTaskDelete(NULL);
+    return (high_task_woken == pdTRUE);
 }
 
-extern "C" void app_main(void)
+void init_timer(TaskHandle_t task_handle)
 {
-    I2CManager i2cManager{I2C_SDA, I2C_SCL};
-    i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
-    i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
+    gptimer_config_t config = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000, // 1 MHz = 1 tick per µs
+    };
 
-    printf("Starting when getting power.\n");
-    int32_t voltage = i2cManager.getBusVoltage_mV();
-    int32_t testNum = 0;
-    while (voltage < 9000) {
-        testNum++;
-        printf("%li | Voltage: %li\n", testNum, voltage);
-        vTaskDelay(pdMS_TO_TICKS(100));
-        voltage = i2cManager.getBusVoltage_mV();
-    }
-    // IT'S OVER NINE THOUSAND!!
-    printf("Voltage: %li\n", i2cManager.getBusVoltage_mV());
-    printf("Starting in 1 second.\n");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    gptimer_new_timer(&config, &timer);
+
+    gptimer_event_callbacks_t cbs = {
+        .on_alarm = timer_callback,
+    };
+
+    gptimer_register_event_callbacks(timer, &cbs, task_handle);
+
+    gptimer_enable(timer);
+
+    gptimer_alarm_config_t alarm_config = {
+        .alarm_count = 300,   // 150 µs
+        .reload_count = 0,
+        .flags = {
+            .auto_reload_on_alarm = true,
+        },
+    };
+
+    gptimer_set_alarm_action(timer, &alarm_config);
+
+    gptimer_start(timer);
+}
+
+void IRAM_ATTR realTimeTask(void *pvParameters) {
+    // printf("Starting task.\n");
 
     spi_stuff();
     mcpwm = pwm_stuff();
     mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
     spiManager.motorDriver.enable();
 
-    mcpwm.set_phase_voltages(0.06, -0.03, -0.03);
+    mcpwm.set_phase_voltages(0.04, -0.02, -0.02);
+    // printf("Sat phase voltages.\n");
     vTaskDelay(pdMS_TO_TICKS(1000));
     float numReadings = 0.0f;
     float sinSum = 0.0f;
@@ -201,52 +170,191 @@ extern "C" void app_main(void)
 
         sinSum += sin(angle);
         cosSum += cos(angle);
-
-        auto current = i2cManager.getCurrent_mA();
-        if (current > 1000) {
-            mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
-            printf("Too much current: %li\n", current);
-            return;
-        }
     }
     angleOffset = atan2(sinSum, cosSum);
+    // printf("Finished reading offset.\n");
 
+    static float sumVelocity = 0;
+    static float sumStrength = 0;
+    static float sumLoopTime = 0;
+    static float numLoops = 0;
+
+    float positionSetpoint = atomic_load_float(&positionSetpointGlob);
+    float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+    float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+
+    float strengthOut = 0.0f;
+    float strengthFilterAlpha = 0.001f;
+
+    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_2, true);
+    bool ledState = true;
+
+    uint64_t iteration = 0;
+    init_timer(control_task_handle);
+    int64_t startTime = esp_timer_get_time();
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        iteration++;
+
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        rotationsGlob = rotations;
+
+        sumVelocity += velocity;
+        angle -= angleOffset;
+        float elPos = angle * 20.0f;
+        while (elPos >= TWO_PI) { elPos -= TWO_PI; }
+        while (elPos < 0) { elPos += TWO_PI; }
+        Output output{};
+
+        float deltaOffset = 0.0f;
+        float strength = 0.0f;
+        if ((drivingModeGlob > 2) && (iteration % updateFreqPositionGlob == 0)) {
+            positionPID.setSetpoint(positionSetpoint);
+            velocitySetpoint = positionPID.update(cumAngle, (float)updateFreqPositionGlob);
+
+            float deltaOffset = positionSetpoint - cumAngle;
+        }
+
+        if ((drivingModeGlob > 1) && (iteration % updateFreqVelocityGlob == 0)) {
+            velocityPID.setSetpoint(velocitySetpoint);
+            torqueSetpoint = velocityPID.update(velocity, (float)updateFreqVelocityGlob);
+        }
+
+        if ((drivingModeGlob > 0) && (iteration % updateFreqTorqueGlob == 0)) {
+            strength = torqueSetpoint;
+            // TODO: read current, and send this to
+            // torque PI.
+        }
+
+        strength = std::max(-0.4f, std::min(0.4f, strength));
+        sumStrength += strength;
+        strengthOut = strengthOut * (1 - strengthFilterAlpha) + strength * strengthFilterAlpha;
+
+        float posDelta = PI_DIV_2;
+        output.phaseA = strengthOut * sin(elPos + PI_DIV_2 + posDelta);
+        output.phaseB = strengthOut * sin(elPos + PI_7_DIV_6 + posDelta);
+        output.phaseC = strengthOut * sin(elPos - PI_DIV_6 + posDelta);
+
+        auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
+    
+        numLoops++;
+        if (numLoops == 100) {
+            if (drivingModeGlob == DrivingMode::Position) {
+                positionSetpoint = atomic_load_float(&positionSetpointGlob);
+            } else if (drivingModeGlob == DrivingMode::Velocity) {
+                velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
+            } else if (drivingModeGlob == DrivingMode::Torque) {
+                torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+            } else {
+                positionSetpoint = 0.0f;
+                velocitySetpoint = 0.0f;
+                torqueSetpoint = 0.0f;
+            }
+
+            atomic_store_float(&angleGlob, angle);
+            atomic_store_float(&cumAngleGlob, cumAngle);
+
+            int64_t endTime = esp_timer_get_time();
+            auto sumLoopTime = endTime - startTime;
+            startTime = endTime;
+            float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
+            float avgVelocity = sumVelocity / static_cast<float>(numLoops);
+            float avgStrength = sumStrength / static_cast<float>(numLoops);
+
+            atomic_store_float(&avgLoopTimeGlob, avgLoopTime);
+            atomic_store_float(&avgVelocityGlob, avgVelocity);
+            atomic_store_float(&avgStrengthGlob, avgStrength);
+
+            sumLoopTime = 0;
+            sumVelocity = 0;
+            sumStrength = 0;
+            numLoops = 0;
+
+            ledState = !ledState;
+            gpio_set_level(GPIO_NUM_2, ledState);
+
+            uint16_t address = 0x00;
+            uint16_t data = 0x00;
+            spiManager.motorDriver.readRegister(address, data);
+            // printf("Error register: %i\n", data);
+        }
+    }
+
+    vTaskDelete(NULL);
+}
+
+void setupTask() {
     xTaskCreatePinnedToCore(
         realTimeTask,
         "MotorDriverTask",
         4096,
         NULL,
-        5,
-        NULL,
+        20,
+        &control_task_handle,
         1
     );
+}
+
+extern "C" void app_main(void)
+{
+    I2CManager i2cManager{I2C_SDA, I2C_SCL};
+    i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
+    i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
+
+    bool startedTask = false;
+    bool voltageOver9V = false;
+    int64_t timeOfPower = 0;
 
     SerialCom serialCom{};
     SensorData sensorData{};
 
+    uint32_t loopTimeSerial = 0;
+
+    int32_t currentLimit = 1000; // 1A
     bool state = false;
     int iteration = 0;
+
     while (1) {
-        iteration++;
-        state = !state;
-        i2cManager.writePin(MULTIPLEXER_LED0, state);
-        i2cManager.writePin(MULTIPLEXER_LED1, !state);
+
+        auto startTime = esp_timer_get_time();
         auto current = i2cManager.getCurrent_mA();
-        
-        if (current > 2000) {
-            printf("Current at %li!\n", current);
+        auto voltage = i2cManager.getBusVoltage_mV();
+        // printf("Voltage: %li\n", voltage);
+        if (!startedTask) {
+            if ((!voltageOver9V) && (voltage > 9000)) {
+                timeOfPower = startTime;
+                voltageOver9V = true;
+            } else if ((voltageOver9V) && (startTime - timeOfPower > 1000 * 1000)) {
+                setupTask();
+                startedTask = true;
+            }
+        }
+
+        iteration++;
+
+        state = !state;
+        i2cManager.writePin(MULTIPLEXER_LED0, drivingModeGlob == 1);
+        i2cManager.writePin(MULTIPLEXER_LED1, state);
+
+        if (current > currentLimit) {
+            // Disable if current is too high.
+            drivingModeGlob = DrivingMode::Disabled;
         }
 
         float velocity = atomic_load_float(&avgVelocityGlob);
-        float torque = atomic_load_float(&avgStrenghtGlob);
+        float torque = atomic_load_float(&avgStrengthGlob);
         float looptime = atomic_load_float(&avgLoopTimeGlob);
 
         sensorData.iteration = iteration;
         sensorData.timestamp_ms = esp_timer_get_time();
-        sensorData.position = atomic_load_float(&cumAngleGlob); // static_cast<float>(rotationsGlob) * TWO_PI + atomic_load_float(&angleGlob);
+        sensorData.position = atomic_load_float(&cumAngleGlob);
         sensorData.velocity = velocity;
         sensorData.torque = torque;
         sensorData.current = current;
+        sensorData.voltage = voltage;
+        sensorData.loopTimeSerial = loopTimeSerial;
+        sensorData.loopTimeMotor = looptime;
         serialCom.setData(sensorData);
 
         Command cmd{};
@@ -254,29 +362,70 @@ extern "C" void app_main(void)
         if (gotData) {
             switch (cmd.command_type)
             {
+
             case 1:
+                atomic_store_float(&torqueSetpointGlob, cmd.value1);
+                break;
+
+            case 2:
+                torquePI.setKp(cmd.value1);
+                break;
+
+            case 3:
+                torquePI.setKi(cmd.value1);
+                break;
+
+            case 4:
+                // No Command
+                break;
+
+            case 5:
                 atomic_store_float(&velocitySetpointGlob, cmd.value1);
                 break;
-            
-            case 2:
+
+            case 6:
                 velocityPID.setKp(cmd.value1);
                 break;
-            
-            case 3:
+
+            case 7:
                 velocityPID.setKi(cmd.value1);
                 break;
-            
-            case 4:
+
+            case 8:
                 velocityPID.setKd(cmd.value1);
                 break;
+
+            case 9:
+                atomic_store_float(&positionSetpointGlob, cmd.value1);
+                break;
+
+            case 10:
+                positionPID.setKp(cmd.value1);
+                break;
+
+            case 11:
+                positionPID.setKi(cmd.value1);
+                break;
+
+            case 12:
+                positionPID.setKd(cmd.value1);
+                break;
+
+            case 13:
+                drivingModeGlob = cmd.value0;
+                break;
+
+            case 14:
+                currentLimit = cmd.value0;
 
             default:
                 break;
             }
         }
 
-        // serialCom.update();
-        printf("Position: %f | Current: %li\n", sensorData.position, sensorData.current);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        serialCom.update();
+        auto endTime = esp_timer_get_time();
+        loopTimeSerial = endTime - startTime;
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
