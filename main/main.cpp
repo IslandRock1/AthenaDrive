@@ -29,7 +29,7 @@ TaskHandle_t control_task_handle = NULL;
 
 SpiManagerPrimary spiManager;
 
-esp_err_t spi_stuff() {
+void setupSPI() {
     SpiConfigPrimary configPrimary = {
         .MOSI = SPI_MOSI_0,
         .MISO = SPI_MISO_0,
@@ -37,14 +37,16 @@ esp_err_t spi_stuff() {
         .SPI_HOST = SPI2_HOST,
     };
     spiManager.beginManager(configPrimary);
+}
 
+void beginEncoder() {
     EncoderConfig configEnc(SPI2_HOST, CHIP_SELECT_ENCODER, 10000000, 3);
     spiManager.beginEncoder(configEnc);
+}
 
+void beginMotorDriver() {
     MotorDriverConfig configDrv(SPI2_HOST, CHIP_SELECT_MOTOR_DRIVER, 100000, 1, MOTOR_LOW_A, MOTOR_LOW_B, MOTOR_LOW_C);
     spiManager.beginMotorDriver(configDrv);
-
-    return ESP_OK;
 }
 
 Mcpwm pwm_stuff() {
@@ -86,6 +88,7 @@ atomic_uint avgStrengthGlob = 0;
 atomic_uint avgLoopTimeGlob = 0;
 
 float angleOffset = 0;
+atomic_uint voltageGlob = 0;
 atomic_uint drivingModeGlob = 0;
 
 PI_Reg torquePI{0.0, 0.0};
@@ -146,9 +149,21 @@ void init_timer(TaskHandle_t task_handle)
 }
 
 void IRAM_ATTR realTimeTask(void *pvParameters) {
-    // printf("Starting task.\n");
+    setupSPI();
+    beginEncoder();
 
-    spi_stuff();
+    int32_t rotations;
+    float angle, cumAngle, velocity;
+    while (voltageGlob < 9000) {
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        atomic_store_float(&angleGlob, angle);
+        atomic_store_float(&cumAngleGlob, cumAngle);
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    beginMotorDriver();
+
     mcpwm = pwm_stuff();
     mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
     spiManager.motorDriver.enable();
@@ -159,9 +174,6 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     float numReadings = 0.0f;
     float sinSum = 0.0f;
     float cosSum = 0.0f;
-
-    int32_t rotations;
-    float angle, cumAngle, velocity;
 
     for (int i = 0; i < 10; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -227,7 +239,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             // torque PI.
         }
 
-        strength = std::max(-0.4f, std::min(0.4f, strength));
+        strength = std::max(-0.8f, std::min(0.8f, strength));
         sumStrength += strength;
         strengthOut = strengthOut * (1 - strengthFilterAlpha) + strength * strengthFilterAlpha;
 
@@ -298,13 +310,10 @@ void setupTask() {
 
 extern "C" void app_main(void)
 {
+    setupTask();
     I2CManager i2cManager{I2C_SDA, I2C_SCL};
     i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
     i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
-
-    bool startedTask = false;
-    bool voltageOver9V = false;
-    int64_t timeOfPower = 0;
 
     SerialCom serialCom{};
     SensorData sensorData{};
@@ -320,16 +329,7 @@ extern "C" void app_main(void)
         auto startTime = esp_timer_get_time();
         auto current = i2cManager.getCurrent_mA();
         auto voltage = i2cManager.getBusVoltage_mV();
-        // printf("Voltage: %li\n", voltage);
-        if (!startedTask) {
-            if ((!voltageOver9V) && (voltage > 9000)) {
-                timeOfPower = startTime;
-                voltageOver9V = true;
-            } else if ((voltageOver9V) && (startTime - timeOfPower > 1000 * 1000)) {
-                setupTask();
-                startedTask = true;
-            }
-        }
+        voltageGlob = voltage;
 
         iteration++;
 
