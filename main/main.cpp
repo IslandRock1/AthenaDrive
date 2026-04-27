@@ -10,7 +10,7 @@
 #include "driver/gpio.h"
 #include "Pinout.hpp"
 #include "I2CManager.hpp"
-#include "ContinuousADC.hpp"
+#include "OneshotADC.hpp"
 #include "Controller.hpp"
 #include "PID.hpp"
 #include "SerialComm.hpp"
@@ -28,6 +28,55 @@ gptimer_handle_t timer = NULL;
 TaskHandle_t control_task_handle = NULL;
 
 SpiManagerPrimary spiManager;
+OneshotADC oneshotADC;
+
+void readOneshotA(void *pvParameters) {
+    oneshotADC.readA();
+}
+
+void setupTaskReadVoltageA() {
+    xTaskCreatePinnedToCore(
+        readOneshotA,
+        "ReadVoltageA",
+        4096,
+        NULL,
+        20,
+        NULL,
+        0
+    );
+}
+
+void readOneshotB(void *pvParameters) {
+    oneshotADC.readB();
+}
+
+void setupTaskReadVoltageB() {
+    xTaskCreatePinnedToCore(
+        readOneshotB,
+        "ReadVoltageB",
+        4096,
+        NULL,
+        20,
+        NULL,
+        0
+    );
+}
+
+void readOneshotC(void *pvParameters) {
+    oneshotADC.readC();
+}
+
+void setupTaskReadVoltageC() {
+    xTaskCreatePinnedToCore(
+        readOneshotC,
+        "ReadVoltageC",
+        4096,
+        NULL,
+        20,
+        NULL,
+        0
+    );
+}
 
 void setupSPI() {
     SpiConfigPrimary configPrimary = {
@@ -155,6 +204,15 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     int32_t rotations;
     float angle, cumAngle, velocity;
     while (voltageGlob < 9000) {
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        atomic_store_float(&angleGlob, angle);
+        atomic_store_float(&cumAngleGlob, cumAngle);
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    // Wait 1 second.
+    for (int i = 0; i < 100; i++) {
         spiManager.encoder.update(rotations, angle, cumAngle, velocity);
         atomic_store_float(&angleGlob, angle);
         atomic_store_float(&cumAngleGlob, cumAngle);
@@ -324,6 +382,9 @@ extern "C" void app_main(void)
     bool state = false;
     int iteration = 0;
 
+    drivingModeGlob = 1;
+    atomic_store_float(&torqueSetpointGlob, 1.0f);
+
     while (1) {
 
         auto startTime = esp_timer_get_time();
@@ -423,7 +484,16 @@ extern "C" void app_main(void)
             }
         }
 
-        serialCom.update();
+        setupTaskReadVoltageA();
+        setupTaskReadVoltageB();
+        setupTaskReadVoltageC();
+
+        int vA = oneshotADC.voltageA.load();
+        int vB = oneshotADC.voltageB.load();
+        int vC = oneshotADC.voltageC.load();
+        printf("Voltages: %i, %i, %i\n", vA, vB, vC);
+
+        // serialCom.update();
         auto endTime = esp_timer_get_time();
         loopTimeSerial = endTime - startTime;
         vTaskDelay(pdMS_TO_TICKS(50));
