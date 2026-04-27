@@ -2,69 +2,53 @@
 #include "DRV8323.hpp"
 #include "DRV8323_Registers.hpp"
 
-DRV8323::DRV8323(drvConfig &config)
-    : _spiHost(config.spiHost) {
-    
-    spi_device_interface_config_t devConfig = {
-        .command_bits   = 0,
-        .address_bits   = 0,
-        .dummy_bits     = 0,
-        .mode           = 1,
-        .cs_ena_posttrans = 1,
-        .clock_speed_hz = config.spiClockHz > 0 ? config.spiClockHz : 1000000,
-        .spics_io_num   = config.cs,
-        .queue_size     = 1,
-    };
+esp_err_t DRV8323::begin(MotorDriverConfig config) {
+    LOW_A = config.LOW_A;
+    LOW_B = config.LOW_B;
+    LOW_C = config.LOW_C;
 
-    esp_err_t err = spi_bus_add_device(config.spiHost, &devConfig, &_spiDevice);
-    // TODO: Error handling.
-}
+    gpio_set_direction(LOW_A, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LOW_B, GPIO_MODE_OUTPUT);
+    gpio_set_direction(LOW_C, GPIO_MODE_OUTPUT);
+    gpio_set_level(LOW_A, false);
+    gpio_set_level(LOW_B, false);
+    gpio_set_level(LOW_C, false);
 
-DRV8323::~DRV8323() {
-    if (_spiDevice) {
-        spi_bus_remove_device(_spiDevice);
+    esp_err_t err = BaseSPI<MotorDriverConfig>::begin(config);
+
+    modifyBits(DRV_REG_CSA_CTRL, DRV_CSA_GAIN_MASK, DRV_CSA_GAIN_40);
+    modifyBits(DRV_REG_DRIVER_CTRL, 0b1100000, 0b0100000); // 3x PWM mode
+
+    uint16_t mdrvData = 0;
+    readRegister(0x02, mdrvData);
+    if (mdrvData != 32) {
+        printf("Motordriver in wrong mode.\n");
     }
-}
 
-esp_err_t DRV8323::readRegister(uint8_t address, uint16_t *data) {
-    uint16_t tx = DRV_SPI_READ | DRV_SPI_ADDR(address) | 0x0000;
-    esp_err_t err = spiTransfer16(tx, data);
+    readRegister(0x06, mdrvData);
+    // Should be 3x PWM mode.
+    if (mdrvData != 707) {
+        printf("Motordriver in wrong mode.\n");
+    }
+
     return err;
 }
 
-esp_err_t DRV8323::writeRegister(uint8_t address, uint16_t data) {
+void DRV8323::enable() {
+    gpio_set_level(LOW_A, true);
+    gpio_set_level(LOW_B, true);
+    gpio_set_level(LOW_C, true);
+}
+
+esp_err_t DRV8323::readRegister(uint16_t address, uint16_t &data) {
+    uint16_t tx = DRV_SPI_READ | DRV_SPI_ADDR(address) | 0x0000;
+    esp_err_t err = _spiTransfer16(tx, data);
+    return err;
+}
+
+esp_err_t DRV8323::writeRegister(uint16_t address, uint16_t data) {
     uint16_t tx = DRV_SPI_WRITE | DRV_SPI_ADDR(address) | DRV_SPI_DATA(data);
     uint16_t rx = 0;
-    esp_err_t err = spiTransfer16(tx, &rx);
-    return err;
-}
-
-esp_err_t DRV8323::modifyBits(uint8_t address, uint16_t mask, uint16_t value) {
-    uint16_t current = 0;
-    esp_err_t err = readRegister(address, &current);
-    if (err != ESP_OK) { return err; }
-
-    uint16_t newValue = (current & ~mask) | (value & mask);
-    err = writeRegister(address, newValue);
-    return err;
-}
-
-esp_err_t DRV8323::spiTransfer16(uint16_t tx, uint16_t *rx) {
-    uint8_t txBuffer[2] = { static_cast<uint8_t>((tx >> 8) & 0xFF), static_cast<uint8_t>(tx & 0xFF) };
-    uint8_t rxBuffer[2] = { 0, 0 };
-
-    spi_transaction_t spiTransaction = {
-        .length = 16,
-        .tx_buffer = txBuffer,
-        .rx_buffer = rxBuffer,
-    };
-
-    esp_err_t err = spi_device_transmit(_spiDevice, &spiTransaction);
-
-    if (rx) {
-        *rx = ((uint16_t)rxBuffer[0] << 8) | rxBuffer[1];
-        *rx &= DRV_SPI_DATA_MASK;
-    }
-
+    esp_err_t err = _spiTransfer16(tx, rx);
     return err;
 }

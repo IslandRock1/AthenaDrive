@@ -5,24 +5,33 @@
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 
-struct drvConfig {
-    spi_host_device_t  spiHost;
-    gpio_num_t         cs;
-    int                spiClockHz;
+#include "BaseSPI.hpp"
+
+struct MotorDriverConfig : public SpiConfig {
+    gpio_num_t LOW_A;
+    gpio_num_t LOW_B;
+    gpio_num_t LOW_C;
+
+    MotorDriverConfig(
+        spi_host_device_t spiHost, 
+        gpio_num_t cs, 
+        int spiClockHz, 
+        uint8_t mode, 
+        gpio_num_t LOW_A, 
+        gpio_num_t LOW_B, 
+        gpio_num_t LOW_C)
+        : SpiConfig(spiHost, cs, spiClockHz, mode), LOW_A(LOW_A), LOW_B(LOW_B), LOW_C(LOW_C) {}
 };
 
-class DRV8323 {
+class DRV8323 : public BaseSPI<MotorDriverConfig> {
 public:
-    DRV8323(drvConfig &config);
-    ~DRV8323();
-
-    esp_err_t readRegister(uint8_t address, uint16_t *data);
-    esp_err_t writeRegister(uint8_t address, uint16_t data);
-    esp_err_t modifyBits(uint8_t address, uint16_t mask, uint16_t value);
+    esp_err_t begin(MotorDriverConfig config);
+    void enable();
+    esp_err_t readRegister(uint16_t address, uint16_t &data) override;
+    esp_err_t writeRegister(uint16_t address, uint16_t data) override;
 
 private:
-    spi_device_handle_t _spiDevice = nullptr;
-    spi_host_device_t _spiHost;
-
-    esp_err_t spiTransfer16(uint16_t tx, uint16_t *rx);
+    gpio_num_t LOW_A;
+    gpio_num_t LOW_B;
+    gpio_num_t LOW_C;
 };

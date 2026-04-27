@@ -1,0 +1,40 @@
+
+#pragma once
+#include <stdint.h>
+#include <type_traits>
+#include "esp_err.h"
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
+
+struct SpiConfig {
+    spi_host_device_t spiHost;
+    gpio_num_t cs;
+    int spiClockHz;
+    uint8_t mode;
+
+    SpiConfig(spi_host_device_t spiHost, gpio_num_t cs, int spiClockHz, uint8_t mode)
+        : spiHost(spiHost), cs(cs), spiClockHz(spiClockHz), mode(mode) {}
+};
+
+template<typename ConfigT>
+class BaseSPI {
+    static_assert(std::is_base_of<SpiConfig, ConfigT>::value, 
+        "Config must inherit from SpiConfig.");
+
+public:
+    BaseSPI() = default;
+    virtual ~BaseSPI();
+
+    esp_err_t begin(ConfigT config);
+    virtual esp_err_t readRegister(uint16_t address, uint16_t &data) = 0;
+    virtual esp_err_t writeRegister(uint16_t address, uint16_t data) = 0;
+    esp_err_t modifyBits(uint16_t address, uint16_t mask, uint16_t value);
+
+protected:
+    spi_device_handle_t _spiDevice = nullptr;
+    spi_host_device_t _spiHost;
+
+    esp_err_t _spiTransfer16(uint16_t tx, uint16_t &rx);
+};
+
+#include "BaseSPI.tpp"
