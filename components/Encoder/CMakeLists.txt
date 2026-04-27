@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "AS5048.cpp"
+    SRCS "Encoder.cpp"
     INCLUDE_DIRS "include"
     REQUIRES esp_timer driver BaseSPI
 )

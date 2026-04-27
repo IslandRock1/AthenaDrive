@@ -11,7 +11,7 @@ struct EncoderConfig : public SpiConfig {
         : SpiConfig(spiHost, cs, spiClockHz, mode) {}
 };
 
-class AS5048 : public BaseSPI<EncoderConfig> {
+class Encoder : public BaseSPI<EncoderConfig> {
 public:
     esp_err_t begin(EncoderConfig config);
     esp_err_t update(int32_t &rotations, float &angle, float &cumAngle, float &velocity);

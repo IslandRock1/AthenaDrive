@@ -3,8 +3,8 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include <cmath>
-#include "AS5048.hpp"
-#include "AS5048_Registers.hpp"
+#include "Encoder.hpp"
+#include "Encoder_Registers.hpp"
 
 static uint16_t applyParity(uint16_t word)
 {
@@ -16,28 +16,28 @@ static uint16_t applyParity(uint16_t word)
     w ^= (w >> 1);
 
     if (w & 1) {
-        word |= AS5048_PAR_BIT;
+        word |= ENCODER_PAR_BIT;
     } else {
-        word &= ~AS5048_PAR_BIT;
+        word &= ~ENCODER_PAR_BIT;
     }
     return word;
 }
 
-esp_err_t AS5048::begin(EncoderConfig config) {
+esp_err_t Encoder::begin(EncoderConfig config) {
     esp_err_t err = BaseSPI<EncoderConfig>::begin(config);
 
     uint16_t error = 0;
-    readRegister(AS5048_REG_CLEAR_ERROR, error);
+    readRegister(ENCODER_REG_CLEAR_ERROR, error);
 
     return err;
 }
 
-esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
+esp_err_t Encoder::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
     uint16_t rawAngle = 0;
-    esp_err_t err = readRegister(AS5048_REG_ANGLE, rawAngle);
+    esp_err_t err = readRegister(ENCODER_REG_ANGLE, rawAngle);
     if (err != ESP_OK) return err;
 
-    int16_t raw = static_cast<int16_t>(rawAngle & AS5048_DATA_MASK);    // 0-16383
+    int16_t raw = static_cast<int16_t>(rawAngle & ENCODER_DATA_MASK);    // 0-16383
 
     if (_firstUpdate) {
         _prevRaw = raw;
@@ -81,8 +81,8 @@ esp_err_t AS5048::update(int32_t &rotations, float &angle, float &cumAngle, floa
     return ESP_OK;
 }
 
-esp_err_t AS5048::readRegister(uint16_t address, uint16_t &data) {
-    uint16_t cmd = AS5048_RW_READ | (address & AS5048_ADDR_MASK);
+esp_err_t Encoder::readRegister(uint16_t address, uint16_t &data) {
+    uint16_t cmd = ENCODER_RW_READ | (address & ENCODER_ADDR_MASK);
     cmd = applyParity(cmd);
 
     uint16_t response0 = 0;
@@ -92,17 +92,17 @@ esp_err_t AS5048::readRegister(uint16_t address, uint16_t &data) {
     uint16_t response1 = 0;
     esp_err_t err = _spiTransfer16(nop, response1);
 
-    data = response1 & AS5048_DATA_MASK;
+    data = response1 & ENCODER_DATA_MASK;
     return err;
 }
 
-esp_err_t AS5048::writeRegister(uint16_t address, uint16_t data) {
-    uint16_t cmd = AS5048_RW_WRITE | (address & AS5048_ADDR_MASK);
+esp_err_t Encoder::writeRegister(uint16_t address, uint16_t data) {
+    uint16_t cmd = ENCODER_RW_WRITE | (address & ENCODER_ADDR_MASK);
     cmd = applyParity(cmd);
     uint16_t response0 = 0;
     esp_err_t err = _spiTransfer16(cmd, response0);
 
-    uint16_t data_frame = data & AS5048_DATA_MASK;
+    uint16_t data_frame = data & ENCODER_DATA_MASK;
     data_frame = applyParity(data_frame);
     uint16_t response1 = 0;
     err = _spiTransfer16(data_frame, response1);

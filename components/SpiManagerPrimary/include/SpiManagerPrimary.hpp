@@ -4,8 +4,8 @@
 
 #include "MotorDriver.hpp"
 #include "MotorDriver_Registers.hpp"
-#include "AS5048.hpp"
-#include "AS5048_Registers.hpp"
+#include "Encoder.hpp"
+#include "Encoder_Registers.hpp"
 
 struct SpiConfigPrimary {
     gpio_num_t MOSI;
@@ -21,6 +21,6 @@ public:
     void beginEncoder(EncoderConfig config);
     void beginMotorDriver(MotorDriverConfig config);
 
-    AS5048 encoder;
+    Encoder encoder;
     MotorDriver motorDriver;
 };
