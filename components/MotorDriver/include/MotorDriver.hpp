@@ -23,7 +23,7 @@ struct MotorDriverConfig : public SpiConfig {
         : SpiConfig(spiHost, cs, spiClockHz, mode), LOW_A(LOW_A), LOW_B(LOW_B), LOW_C(LOW_C) {}
 };
 
-class DRV8323 : public BaseSPI<MotorDriverConfig> {
+class MotorDriver : public BaseSPI<MotorDriverConfig> {
 public:
     esp_err_t begin(MotorDriverConfig config);
     void enable();

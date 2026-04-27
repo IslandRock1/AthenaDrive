@@ -1,8 +1,8 @@
 #include <stdio.h>
-#include "DRV8323.hpp"
-#include "DRV8323_Registers.hpp"
+#include "MotorDriver.hpp"
+#include "MotorDriver_Registers.hpp"
 
-esp_err_t DRV8323::begin(MotorDriverConfig config) {
+esp_err_t MotorDriver::begin(MotorDriverConfig config) {
     LOW_A = config.LOW_A;
     LOW_B = config.LOW_B;
     LOW_C = config.LOW_C;
@@ -34,19 +34,19 @@ esp_err_t DRV8323::begin(MotorDriverConfig config) {
     return err;
 }
 
-void DRV8323::enable() {
+void MotorDriver::enable() {
     gpio_set_level(LOW_A, true);
     gpio_set_level(LOW_B, true);
     gpio_set_level(LOW_C, true);
 }
 
-esp_err_t DRV8323::readRegister(uint16_t address, uint16_t &data) {
+esp_err_t MotorDriver::readRegister(uint16_t address, uint16_t &data) {
     uint16_t tx = DRV_SPI_READ | DRV_SPI_ADDR(address) | 0x0000;
     esp_err_t err = _spiTransfer16(tx, data);
     return err;
 }
 
-esp_err_t DRV8323::writeRegister(uint16_t address, uint16_t data) {
+esp_err_t MotorDriver::writeRegister(uint16_t address, uint16_t data) {
     uint16_t tx = DRV_SPI_WRITE | DRV_SPI_ADDR(address) | DRV_SPI_DATA(data);
     uint16_t rx = 0;
     esp_err_t err = _spiTransfer16(tx, rx);

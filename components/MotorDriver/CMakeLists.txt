@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "DRV8323.cpp"
+    SRCS "MotorDriver.cpp"
     INCLUDE_DIRS "include"
     REQUIRES driver BaseSPI
 )

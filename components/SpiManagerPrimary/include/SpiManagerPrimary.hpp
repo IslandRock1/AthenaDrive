@@ -2,8 +2,8 @@
 #pragma once
 #include "driver/gpio.h"
 
-#include "DRV8323.hpp"
-#include "DRV8323_Registers.hpp"
+#include "MotorDriver.hpp"
+#include "MotorDriver_Registers.hpp"
 #include "AS5048.hpp"
 #include "AS5048_Registers.hpp"
 
@@ -22,5 +22,5 @@ public:
     void beginMotorDriver(MotorDriverConfig config);
 
     AS5048 encoder;
-    DRV8323 motorDriver;
+    MotorDriver motorDriver;
 };
