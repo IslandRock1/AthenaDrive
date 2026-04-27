@@ -22,7 +22,6 @@ public:
 
     esp_err_t init(const Config& cfg);
     esp_err_t set_phase_voltages(float va, float vb, float vc); // [-1, 1]
-    esp_err_t all_off();
     bool is_initialised() const { return _initialised; }
 
     esp_err_t enable();
@@ -36,6 +35,7 @@ private:
     };
 
     esp_err_t init_single_phase(Phase& phase, gpio_num_t pwm_gpio);
+    uint32_t safe_compare_from_normalised(float normalised) const;
 
     Config _cfg{};
     uint32_t _period_tics = 0;
