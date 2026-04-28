@@ -52,7 +52,7 @@ OneshotADC::OneshotADC() {
 
     do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, ADC_CHANNEL_3, ADC_ATTEN_DB_11, &adc1_cali_chan0_handle);
     do_calibration1_chan1 = example_adc_calibration_init(ADC_UNIT_1, ADC_CHANNEL_4, ADC_ATTEN_DB_11, &adc1_cali_chan1_handle);
-    do_calibration1_chan1 = example_adc_calibration_init(ADC_UNIT_1, ADC_CHANNEL_5, ADC_ATTEN_DB_11, &adc1_cali_chan2_handle);
+    do_calibration1_chan2 = example_adc_calibration_init(ADC_UNIT_1, ADC_CHANNEL_5, ADC_ATTEN_DB_11, &adc1_cali_chan2_handle);
 }
 
 int OneshotADC::getA() {
@@ -67,62 +67,39 @@ int OneshotADC::getC() {
     return voltageC.load();
 }
 
-void OneshotADC::startTasks() {
-    xTaskCreatePinnedToCore(taskAEntry, "adcA", 4096, this, 10, nullptr, 1);
-    xTaskCreatePinnedToCore(taskBEntry, "adcB", 4096, this, 10, nullptr, 1);
-    xTaskCreatePinnedToCore(taskCEntry, "adcC", 4096, this, 10, nullptr, 1);
+void OneshotADC::startTask() {
+
+    if (taskIsStarted) {
+        return;
+    }
+
+    taskIsStarted = true;
+    xTaskCreatePinnedToCore(taskEntry, "adcTask", 4096, this, 10, &taskHandle, 0);
 }
 
-void OneshotADC::taskAEntry(void *arg) {
+void OneshotADC::taskEntry(void *arg) {
     auto *self = static_cast<OneshotADC *>(arg);
-    self->taskA();
+    self->task();
 }
 
-void OneshotADC::taskBEntry(void *arg) {
-    auto *self = static_cast<OneshotADC *>(arg);
-    self->taskB();
-}
+void OneshotADC::task() {
+    esp_task_wdt_add(NULL);
 
-void OneshotADC::taskCEntry(void *arg) {
-    auto *self = static_cast<OneshotADC *>(arg);
-    self->taskC();
-}
-
-void OneshotADC::taskA() {
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        readA();
+
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, &rawA));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_4, &rawB));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_5, &rawC));
+
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, rawA, &calcA));
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan1_handle, rawB, &calcB));
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan2_handle, rawC, &calcC));
+
+        voltageA.store(calcA);
+        voltageB.store(calcB);
+        voltageC.store(calcC);
+
+        esp_task_wdt_reset();
     }
-}
-
-void OneshotADC::taskB() {
-    while (1) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        readB();
-    }
-}
-
-void OneshotADC::taskC() {
-    while (1) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        readC();
-    }
-}
-
-void OneshotADC::readA() {
-    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, &rawA));
-    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, rawA, &calcA));
-    voltageA.store(calcA);
-}
-
-void OneshotADC::readB() {
-    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_4, &rawB));
-    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan1_handle, rawB, &calcB));
-    voltageB.store(calcB);
-}
-
-void OneshotADC::readC() {
-    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_5, &rawC));
-    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan2_handle, rawC, &calcC));
-    voltageC.store(calcC);
 }

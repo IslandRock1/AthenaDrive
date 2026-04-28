@@ -6,7 +6,7 @@
 #include <math.h>
 
 static const char* TAG = "Mcpwm";
-
+AdcTriggerCtx _adc_ctx;
 
 esp_err_t Mcpwm::init(const Config& cfg) {
     if (_initialised) return ESP_ERR_INVALID_STATE;
@@ -130,4 +130,44 @@ uint32_t Mcpwm::safe_compare_from_normalised(float normalised) const {
     if (cmp >= peak) cmp = peak - 1;
 
     return cmp;
+}
+
+esp_err_t Mcpwm::register_adc_trigger(TaskHandle_t task_handle) {
+    if (!_initialised) return ESP_ERR_INVALID_STATE;
+
+    _adc_ctx.task_handle = task_handle;
+    _adc_ctx.count = 0;
+    _adc_ctx.divider = 30;
+
+    // Create a second comparator on phase_a's operator — no GPIO, just for timing
+    mcpwm_comparator_config_t cmp_cfg = {};
+    cmp_cfg.flags.update_cmp_on_tez = true;
+    ESP_RETURN_ON_ERROR(
+        mcpwm_new_comparator(phase_a.oper, &cmp_cfg, &_adc_trigger_cmpr),
+        TAG, "adc trigger comparator failed");
+
+    // Counter = 0 is the middle of the low period in up-down mode
+    ESP_RETURN_ON_ERROR(
+        mcpwm_comparator_set_compare_value(_adc_trigger_cmpr, 0),
+        TAG, "adc trigger cmp value failed");
+
+    mcpwm_comparator_event_callbacks_t cbs = {};
+    cbs.on_reach = on_adc_trigger;
+    ESP_RETURN_ON_ERROR(
+        mcpwm_comparator_register_event_callbacks(_adc_trigger_cmpr, &cbs, &_adc_ctx),
+        TAG, "adc trigger callback failed");
+
+    return ESP_OK;
+}
+
+bool IRAM_ATTR Mcpwm::on_adc_trigger(mcpwm_cmpr_handle_t cmpr,
+    const mcpwm_compare_event_data_t *edata, void *user_ctx) {
+
+    auto *ctx = static_cast<AdcTriggerCtx *>(user_ctx);
+    if (++ctx->count < ctx->divider) return false;
+    ctx->count = 0;
+
+    BaseType_t high_task_woken = pdFALSE;
+    vTaskNotifyGiveFromISR(ctx->task_handle, &high_task_woken);
+    return high_task_woken == pdTRUE;
 }

@@ -6,28 +6,23 @@
 #include "stdatomic.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_task_wdt.h"
 
 class OneshotADC {
 public:
     OneshotADC();
 
-    void startTasks();
-    static void taskAEntry(void *arg);
-    static void taskBEntry(void *arg);
-    static void taskCEntry(void *arg);
-
-    void taskA();
-    void taskB();
-    void taskC();
-
+    void startTask();
     int getA();
     int getB();
     int getC();
 
+    TaskHandle_t taskHandle;
+
 private:
-    void readA();
-    void readB();
-    void readC();
+    static void taskEntry(void *arg);
+    void task();
+    bool taskIsStarted = false;
 
     adc_oneshot_unit_handle_t adc1_handle;
 

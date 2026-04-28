@@ -1,11 +1,19 @@
 #pragma once
-
 #include "driver/mcpwm_prelude.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <cmath>
 #include <cstdint>
+
+struct AdcTriggerCtx {
+    TaskHandle_t task_handle;
+    uint32_t divider;
+    uint32_t count;
+};
+extern AdcTriggerCtx _adc_ctx;
 
 class Mcpwm {
 public:
@@ -22,6 +30,7 @@ public:
 
     esp_err_t init(const Config& cfg);
     esp_err_t set_phase_voltages(float va, float vb, float vc); // [-1, 1]
+    esp_err_t register_adc_trigger(TaskHandle_t task_handle);
     bool is_initialised() const { return _initialised; }
 
     esp_err_t enable();
@@ -44,4 +53,9 @@ private:
 
     mcpwm_timer_handle_t _timer = nullptr;
     Phase phase_a{}, phase_b{}, phase_c{};
+
+    static bool IRAM_ATTR on_adc_trigger(mcpwm_cmpr_handle_t cmpr,
+        const mcpwm_compare_event_data_t *edata, void *user_ctx);
+
+    mcpwm_cmpr_handle_t _adc_trigger_cmpr = nullptr;
 };
