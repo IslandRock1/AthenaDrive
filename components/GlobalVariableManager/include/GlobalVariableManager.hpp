@@ -52,13 +52,6 @@ public:
     int32_t getCurrentLimit();
     void setCurrentLimit(int32_t value);
 
-    // Acceleration
-    float getAccelerationSetpoint();
-    void setAccelerationSetpoint(float value);
-
-    uint32_t getUpdateFreqAcceleration();
-    void setUpdateFreqAcceleration(uint32_t value);
-
     // Torque
     float getTorqueSetpoint();
     void setTorqueSetpoint(float value);
@@ -104,9 +97,6 @@ private:
     std::atomic_uint32_t _voltage{0};
     std::atomic_uint32_t _driving_mode{0};
     std::atomic_uint32_t _current_limit{0};
-
-    std::atomic_uint32_t _acceleration_setpoint{0};
-    std::atomic_uint32_t _update_freq_acceleration{1};  // bare satt noe tall her, endre til rett senere
 
     std::atomic_uint32_t _torque_setpoint{0};
     std::atomic_uint32_t _update_freq_torque{1};
