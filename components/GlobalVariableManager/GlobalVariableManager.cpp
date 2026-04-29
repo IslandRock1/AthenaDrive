@@ -109,6 +109,23 @@ void GlobalVariableManager::setCurrentLimit(int32_t value) {
     _current_limit.store(static_cast<uint32_t>(value), std::memory_order_relaxed);
 }
 
+// Acceleration
+float GlobalVariableManager::getAccelerationSetpoint() {
+    return atomic_load_float(_acceleration_setpoint);
+}
+
+void GlobalVariableManager::setAccelerationSetpoint(float value) {
+    atomic_store_float(_acceleration_setpoint, value);
+}
+
+uint32_t GlobalVariableManager::getUpdateFreqAcceleration() {
+    return _update_freq_acceleration.load(std::memory_order_relaxed);
+}
+
+void GlobalVariableManager::setUpdateFreqAcceleration(uint32_t value) {
+    _update_freq_acceleration.store(value, std::memory_order_relaxed);
+}
+
 // Torque
 float GlobalVariableManager::getTorqueSetpoint() {
     return atomic_load_float(_torque_setpoint);
