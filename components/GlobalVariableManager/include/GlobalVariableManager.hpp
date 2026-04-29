@@ -52,6 +52,9 @@ public:
     int32_t getCurrentLimit();
     void setCurrentLimit(int32_t value);
 
+    uint32_t getUpdateFreqTransmition();
+    void setUpdateFreqTransmition(uint32_t value);
+
     // Torque
     float getTorqueSetpoint();
     void setTorqueSetpoint(float value);
@@ -97,6 +100,8 @@ private:
     std::atomic_uint32_t _voltage{0};
     std::atomic_uint32_t _driving_mode{0};
     std::atomic_uint32_t _current_limit{0};
+
+    std::atomic_uint32_t _update_freq_transmition{100};     // ms
 
     std::atomic_uint32_t _torque_setpoint{0};
     std::atomic_uint32_t _update_freq_torque{1};
