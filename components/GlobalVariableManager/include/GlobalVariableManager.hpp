@@ -28,6 +28,12 @@ public:
     float getAvgVelocity();
     void setAvgVelocity(float value);
 
+    float getAcceleration();
+    void setAcceleration(float value);
+
+    float getAvgAcceleration();
+    void setAvgAcceleration(float value);
+
     float getAvgStrength();
     void setAvgStrength(float value);
 
@@ -86,8 +92,10 @@ private:
     std::atomic_uint32_t _angle{0};
     std::atomic_uint32_t _cum_angle{0};
     std::atomic_uint32_t _velocity{0};
+    std::atomic_uint32_t _acceleration{0};
 
     std::atomic_uint32_t _avg_velocity{0};
+    std::atomic_uint32_t _avg_acceleration{0};
     std::atomic_uint32_t _avg_strength{0};
     std::atomic_uint32_t _avg_loop_time{0};
 

@@ -61,6 +61,22 @@ void GlobalVariableManager::setAvgVelocity(float value) {
     atomic_store_float(_avg_velocity, value);
 }
 
+float GlobalVariableManager::getAcceleration() {
+    return atomic_load_float(_acceleration);
+}
+
+void GlobalVariableManager::setAcceleration(float value) {
+    atomic_store_float(_acceleration, value);
+}
+
+float GlobalVariableManager::getAvgAcceleration() {
+    return atomic_load_float(_avg_acceleration);
+}
+
+void GlobalVariableManager::setAvgAcceleration(float value) {
+    atomic_store_float(_avg_acceleration, value);
+}
+
 float GlobalVariableManager::getAvgStrength() {
     return atomic_load_float(_avg_strength);
 }
