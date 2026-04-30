@@ -87,8 +87,6 @@ private:
     std::atomic_uint32_t _avg_strength{0};
     std::atomic_uint32_t _avg_loop_time{0};
 
-    float _angle_offset{0.0f};
-
     std::atomic_uint32_t _voltage{0};
     std::atomic_uint32_t _driving_mode{0};
     std::atomic_uint32_t _current_limit{0};
