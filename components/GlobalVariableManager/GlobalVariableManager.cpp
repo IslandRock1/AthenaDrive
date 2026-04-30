@@ -22,7 +22,7 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
 
 // Measurements / states
 int32_t GlobalVariableManager::getRotations() {
-    return static_cast<int32_t>(_rotations.load(std::memory_order_relaxed));
+    return _rotations.load(std::memory_order_relaxed);
 }
 
 void GlobalVariableManager::setRotations(int32_t value) {
@@ -107,14 +107,6 @@ uint32_t GlobalVariableManager::getDrivingMode() {
 
 void GlobalVariableManager::setDrivingMode(uint32_t value) {
     _driving_mode.store(value, std::memory_order_relaxed);
-}
-
-float GlobalVariableManager::getAngleOffset() {
-    return _angle_offset;
-}
-
-void GlobalVariableManager::setAngleOffset(float value) {
-    _angle_offset = value;
 }
 
 int32_t GlobalVariableManager::getCurrentLimit() {

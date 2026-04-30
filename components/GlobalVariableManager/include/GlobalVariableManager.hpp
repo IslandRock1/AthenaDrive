@@ -4,9 +4,6 @@
 #include <atomic>
 #include <cstdint>
 
-#include "PID.hpp"
-#include "SerialComm.hpp"
-#include "Controller.hpp"
 
 class GlobalVariableManager {
 public:
@@ -45,9 +42,6 @@ public:
 
     uint32_t getDrivingMode();
     void setDrivingMode(uint32_t value);
-
-    float getAngleOffset();
-    void setAngleOffset(float value);
 
     int32_t getCurrentLimit();
     void setCurrentLimit(int32_t value);
