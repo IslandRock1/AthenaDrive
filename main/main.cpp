@@ -10,7 +10,7 @@
 #include "driver/gpio.h"
 #include "Pinout.hpp"
 #include "I2CManager.hpp"
-#include "ContinuousADC.hpp"
+#include "OneshotADC.hpp"
 #include "Controller.hpp"
 #include "PID.hpp"
 #include "SerialComm.hpp"
@@ -28,6 +28,7 @@ gptimer_handle_t timer = NULL;
 TaskHandle_t control_task_handle = NULL;
 
 SpiManagerPrimary spiManager;
+OneshotADC oneshotADC;
 
 void setupSPI() {
     SpiConfigPrimary configPrimary = {
@@ -58,6 +59,8 @@ Mcpwm pwm_stuff() {
 
     Mcpwm mcpwm;
     mcpwm.init(pwmCfg);
+    oneshotADC.startTask();
+    mcpwm.register_adc_trigger(oneshotADC.taskHandle);
     mcpwm.enable();
     mcpwm.set_phase_voltages(-1.0, -1.0, -1.0);
 
@@ -77,6 +80,8 @@ static inline float atomic_load_float(atomic_uint *a) {
     memcpy(&f, &bits, sizeof(f));
     return f;
 }
+
+atomic_bool secondaryTaskStarted = false;
 
 atomic_int32_t rotationsGlob = 0;
 atomic_uint angleGlob = 0.0;
@@ -162,6 +167,15 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    // Wait 1 second.
+    for (int i = 0; i < 100; i++) {
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        atomic_store_float(&angleGlob, angle);
+        atomic_store_float(&cumAngleGlob, cumAngle);
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
     beginMotorDriver();
 
     mcpwm = pwm_stuff();
@@ -202,6 +216,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     gpio_set_level(GPIO_NUM_2, true);
     bool ledState = true;
 
+    secondaryTaskStarted.store(true);
     uint64_t iteration = 0;
     init_timer(control_task_handle);
     int64_t startTime = esp_timer_get_time();
@@ -302,7 +317,7 @@ void setupTask() {
         "MotorDriverTask",
         4096,
         NULL,
-        20,
+        10,
         &control_task_handle,
         1
     );
@@ -320,9 +335,12 @@ extern "C" void app_main(void)
 
     uint32_t loopTimeSerial = 0;
 
-    int32_t currentLimit = 1000; // 1A
+    int32_t currentLimit = 10000; // 1A
     bool state = false;
     int iteration = 0;
+
+    drivingModeGlob = 1;
+    atomic_store_float(&torqueSetpointGlob, 0.1f);
 
     while (1) {
 
@@ -340,6 +358,7 @@ extern "C" void app_main(void)
         if (current > currentLimit) {
             // Disable if current is too high.
             drivingModeGlob = DrivingMode::Disabled;
+            printf("Disabling motor!\n");
         }
 
         float velocity = atomic_load_float(&avgVelocityGlob);
@@ -423,7 +442,21 @@ extern "C" void app_main(void)
             }
         }
 
-        serialCom.update();
+        if (secondaryTaskStarted.load()) {
+            BaseType_t high_task_woken = pdFALSE;
+            TaskHandle_t task = static_cast<TaskHandle_t>(oneshotADC.taskHandle);
+            vTaskNotifyGiveFromISR(task, &high_task_woken);
+
+            int vA = oneshotADC.getA();
+            int vB = oneshotADC.getB();
+            int vC = oneshotADC.getC();
+            printf("Voltages: %i, %i, %i | %li mV | %li mA\n", vA, vB, vC, voltage, current);
+        } else {
+            printf("Not startet yet. Bus voltage: %li\n", voltage);
+        }
+        
+
+        // serialCom.update();
         auto endTime = esp_timer_get_time();
         loopTimeSerial = endTime - startTime;
         vTaskDelay(pdMS_TO_TICKS(50));
