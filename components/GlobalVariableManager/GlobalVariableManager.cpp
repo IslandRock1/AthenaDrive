@@ -183,16 +183,3 @@ uint32_t GlobalVariableManager::getUpdateFreqPosition() {
 void GlobalVariableManager::setUpdateFreqPosition(uint32_t value) {
     _update_freq_position.store(value, std::memory_order_relaxed);
 }
-
-// Commands FEIL Å HA I GLOB VAR? FINN UT
-void GlobalVariableManager::handleCommand(Command& cmd) {
-    switch (cmd.command_type)
-    {
-    case 1:
-        setTorqueSetpoint(cmd.value1);
-        break;
-    
-    default:
-        break;
-    }
-}

@@ -76,8 +76,6 @@ public:
     uint32_t getUpdateFreqPosition();
     void setUpdateFreqPosition(uint32_t value);
 
-    // Commands
-    void handleCommand(Command& cmd);
 
 private:
     void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
