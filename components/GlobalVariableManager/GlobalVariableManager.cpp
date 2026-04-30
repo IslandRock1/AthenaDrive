@@ -98,7 +98,7 @@ uint32_t GlobalVariableManager::getVoltage() {
 }
 
 void GlobalVariableManager::setVoltage(uint32_t value) {
-    _voltage.store(value, std::memory_order_relaxed)
+    _voltage.store(value, std::memory_order_relaxed);
 }
 
 uint32_t GlobalVariableManager::getDrivingMode() {
