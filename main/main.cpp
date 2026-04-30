@@ -5,7 +5,6 @@
 #include "driver/gptimer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "stdatomic.h"
 
 #include "driver/gpio.h"
 #include "Pinout.hpp"
@@ -14,6 +13,7 @@
 #include "Controller.hpp"
 #include "PID.hpp"
 #include "SerialComm.hpp"
+#include "GlobalVariableManager.hpp"
 
 #include "SpiManagerPrimary.hpp"
 #include "MCPWM.hpp"
@@ -29,6 +29,8 @@ TaskHandle_t control_task_handle = NULL;
 
 SpiManagerPrimary spiManager;
 OneshotADC oneshotADC;
+
+GlobalVariableManager globalVariables{};
 
 void setupSPI() {
     SpiConfigPrimary configPrimary = {
@@ -68,46 +70,6 @@ Mcpwm pwm_stuff() {
 }
 Mcpwm mcpwm;
 
-static inline void atomic_store_float(atomic_uint *a, float f) {
-    uint32_t bits;
-    memcpy(&bits, &f, sizeof(bits));
-    atomic_store(a, bits);
-}
-
-static inline float atomic_load_float(atomic_uint *a) {
-    uint32_t bits = atomic_load(a);
-    float f;
-    memcpy(&f, &bits, sizeof(f));
-    return f;
-}
-
-atomic_bool secondaryTaskStarted = false;
-
-atomic_int32_t rotationsGlob = 0;
-atomic_uint angleGlob = 0.0;
-atomic_uint cumAngleGlob = 0.0;
-atomic_uint velocityGlob = 0.0;
-
-atomic_uint avgVelocityGlob = 0;
-atomic_uint avgStrengthGlob = 0;
-atomic_uint avgLoopTimeGlob = 0;
-
-float angleOffset = 0;
-atomic_uint voltageGlob = 0;
-atomic_uint drivingModeGlob = 0;
-
-PI_Reg torquePI{0.0, 0.0};
-atomic_uint torqueSetpointGlob = 0.0;
-atomic_uint updateFreqTorqueGlob = 1;
-
-PID_Reg velocityPID{0.0, 0.0, 0.0};
-atomic_uint velocitySetpointGlob = 0.0;
-atomic_uint updateFreqVelocityGlob = 10;
-
-PID_Reg positionPID{0.0, 0.0, 0.0};
-atomic_uint positionSetpointGlob = 0.0;
-atomic_uint updateFreqPositionGlob = 100;
-
 static bool IRAM_ATTR timer_callback(
     gptimer_handle_t timer,
     const gptimer_alarm_event_data_t *edata,
@@ -141,7 +103,7 @@ void init_timer(TaskHandle_t task_handle)
     gptimer_enable(timer);
 
     gptimer_alarm_config_t alarm_config = {
-        .alarm_count = 300,   // 150 µs
+        .alarm_count = 1000,
         .reload_count = 0,
         .flags = {
             .auto_reload_on_alarm = true,
@@ -156,13 +118,19 @@ void init_timer(TaskHandle_t task_handle)
 void IRAM_ATTR realTimeTask(void *pvParameters) {
     setupSPI();
     beginEncoder();
+    ControllerParams controllerParams{0.01, 0.0, 0.01, 0.0, 0.0, 0.0};
+    Controller controller{controllerParams};
+
+    float angleOffset = 0;
+    PI_Reg torquePI{0.0, 0.0};
+    PID_Reg velocityPID{0.0, 0.0, 0.0};
+    PID_Reg positionPID{0.0, 0.0, 0.0};
 
     int32_t rotations;
     float angle, cumAngle, velocity;
-    while (voltageGlob < 9000) {
+    while (globalVariables.getVoltage() < 9000) {
         spiManager.encoder.update(rotations, angle, cumAngle, velocity);
-        atomic_store_float(&angleGlob, angle);
-        atomic_store_float(&cumAngleGlob, cumAngle);
+        globalVariables.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -170,8 +138,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     // Wait 1 second.
     for (int i = 0; i < 100; i++) {
         spiManager.encoder.update(rotations, angle, cumAngle, velocity);
-        atomic_store_float(&angleGlob, angle);
-        atomic_store_float(&cumAngleGlob, cumAngle);
+        globalVariables.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -198,16 +165,15 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         cosSum += cos(angle);
     }
     angleOffset = atan2(sinSum, cosSum);
-    // printf("Finished reading offset.\n");
 
     static float sumVelocity = 0;
     static float sumStrength = 0;
     static float sumLoopTime = 0;
     static float numLoops = 0;
 
-    float positionSetpoint = atomic_load_float(&positionSetpointGlob);
-    float velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
-    float torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+    float positionSetpoint = globalVariables.getPositionSetpoint();
+    float velocitySetpoint = globalVariables.getVelocitySetpoint();
+    float torqueSetpoint = globalVariables.getTorqueSetpoint();
 
     float strengthOut = 0.0f;
     float strengthFilterAlpha = 0.001f;
@@ -216,82 +182,75 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     gpio_set_level(GPIO_NUM_2, true);
     bool ledState = true;
 
-    secondaryTaskStarted.store(true);
     uint64_t iteration = 0;
     init_timer(control_task_handle);
-    int64_t startTime = esp_timer_get_time();
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        int64_t startTime = esp_timer_get_time();
         iteration++;
 
         spiManager.encoder.update(rotations, angle, cumAngle, velocity);
-        rotationsGlob = rotations;
+        globalVariables.setRotations(rotations);
 
         sumVelocity += velocity;
         angle -= angleOffset;
         float elPos = angle * 20.0f;
         while (elPos >= TWO_PI) { elPos -= TWO_PI; }
         while (elPos < 0) { elPos += TWO_PI; }
-        Output output{};
 
         float deltaOffset = 0.0f;
         float strength = 0.0f;
-        if ((drivingModeGlob > 2) && (iteration % updateFreqPositionGlob == 0)) {
+
+        uint32_t drivingMode = globalVariables.getDrivingMode();
+        uint32_t updateFreqPos = globalVariables.getUpdateFreqPosition();
+        uint32_t updateFreqVel = globalVariables.getUpdateFreqVelocity();
+        uint32_t updateFreqTor = globalVariables.getUpdateFreqTorque();
+        if ((drivingMode > 2) && (iteration % updateFreqPos == 0)) {
             positionPID.setSetpoint(positionSetpoint);
-            velocitySetpoint = positionPID.update(cumAngle, (float)updateFreqPositionGlob);
+            velocitySetpoint = positionPID.update(cumAngle, static_cast<float>(updateFreqPos));
 
             float deltaOffset = positionSetpoint - cumAngle;
         }
 
-        if ((drivingModeGlob > 1) && (iteration % updateFreqVelocityGlob == 0)) {
+        if ((drivingMode > 1) && (iteration % updateFreqVel == 0)) {
             velocityPID.setSetpoint(velocitySetpoint);
-            torqueSetpoint = velocityPID.update(velocity, (float)updateFreqVelocityGlob);
+            torqueSetpoint = velocityPID.update(velocity, static_cast<float>(updateFreqVel));
         }
 
-        if ((drivingModeGlob > 0) && (iteration % updateFreqTorqueGlob == 0)) {
+        if ((drivingMode > 0) && (iteration % updateFreqTor == 0)) {
             strength = torqueSetpoint;
-            // TODO: read current, and send this to
-            // torque PI.
+            strengthOut = strengthOut * (1.0 - strengthFilterAlpha) + strength * strengthFilterAlpha;
         }
 
-        strength = std::max(-0.8f, std::min(0.8f, strength));
-        sumStrength += strength;
-        strengthOut = strengthOut * (1 - strengthFilterAlpha) + strength * strengthFilterAlpha;
-
-        float posDelta = PI_DIV_2;
-        output.phaseA = strengthOut * sin(elPos + PI_DIV_2 + posDelta);
-        output.phaseB = strengthOut * sin(elPos + PI_7_DIV_6 + posDelta);
-        output.phaseC = strengthOut * sin(elPos - PI_DIV_6 + posDelta);
-
+        Output output = controller.update(strengthOut, -elPos, -velocity, 0.0, 0.0);
         auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
     
+        int64_t endTime = esp_timer_get_time();
+        sumLoopTime += (endTime - startTime);
+
         numLoops++;
         if (numLoops == 100) {
-            if (drivingModeGlob == DrivingMode::Position) {
-                positionSetpoint = atomic_load_float(&positionSetpointGlob);
-            } else if (drivingModeGlob == DrivingMode::Velocity) {
-                velocitySetpoint = atomic_load_float(&velocitySetpointGlob);
-            } else if (drivingModeGlob == DrivingMode::Torque) {
-                torqueSetpoint = atomic_load_float(&torqueSetpointGlob);
+            if (drivingMode == DrivingMode::Position) {
+                positionSetpoint = globalVariables.getPositionSetpoint();
+            } else if (drivingMode == DrivingMode::Velocity) {
+                velocitySetpoint = globalVariables.getVelocitySetpoint();
+            } else if (drivingMode == DrivingMode::Torque) {
+                torqueSetpoint = globalVariables.getTorqueSetpoint();
             } else {
                 positionSetpoint = 0.0f;
                 velocitySetpoint = 0.0f;
                 torqueSetpoint = 0.0f;
             }
 
-            atomic_store_float(&angleGlob, angle);
-            atomic_store_float(&cumAngleGlob, cumAngle);
+            globalVariables.setCumAngle(cumAngle);
 
-            int64_t endTime = esp_timer_get_time();
-            auto sumLoopTime = endTime - startTime;
-            startTime = endTime;
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
             float avgVelocity = sumVelocity / static_cast<float>(numLoops);
             float avgStrength = sumStrength / static_cast<float>(numLoops);
 
-            atomic_store_float(&avgLoopTimeGlob, avgLoopTime);
-            atomic_store_float(&avgVelocityGlob, avgVelocity);
-            atomic_store_float(&avgStrengthGlob, avgStrength);
+            globalVariables.setAvgLooptime(avgLoopTime);
+            globalVariables.setAvgVelocity(avgVelocity);
+            globalVariables.setAvgStrength(avgStrength);
 
             sumLoopTime = 0;
             sumVelocity = 0;
@@ -339,35 +298,34 @@ extern "C" void app_main(void)
     bool state = false;
     int iteration = 0;
 
-    drivingModeGlob = 1;
-    atomic_store_float(&torqueSetpointGlob, 0.1f);
+    globalVariables.setDrivingMode(1);
+    globalVariables.setTorqueSetpoint(0.1f);
 
     while (1) {
 
         auto startTime = esp_timer_get_time();
         auto current = i2cManager.getCurrent_mA();
         auto voltage = i2cManager.getBusVoltage_mV();
-        voltageGlob = voltage;
+        globalVariables.setVoltage(voltage);
 
         iteration++;
 
         state = !state;
-        i2cManager.writePin(MULTIPLEXER_LED0, drivingModeGlob == 1);
+        i2cManager.writePin(MULTIPLEXER_LED0, globalVariables.getDrivingMode() == 1);
         i2cManager.writePin(MULTIPLEXER_LED1, state);
 
         if (current > currentLimit) {
             // Disable if current is too high.
-            drivingModeGlob = DrivingMode::Disabled;
-            printf("Disabling motor!\n");
+            globalVariables.setDrivingMode(DrivingMode::Disabled);
         }
 
-        float velocity = atomic_load_float(&avgVelocityGlob);
-        float torque = atomic_load_float(&avgStrengthGlob);
-        float looptime = atomic_load_float(&avgLoopTimeGlob);
+        float velocity = globalVariables.getAvgVelocity();
+        float torque = globalVariables.getAvgStrength();
+        float looptime = globalVariables.getAvgLoopTime();
 
         sensorData.iteration = iteration;
         sensorData.timestamp_ms = esp_timer_get_time();
-        sensorData.position = atomic_load_float(&cumAngleGlob);
+        sensorData.position = globalVariables.getCumAngle();
         sensorData.velocity = velocity;
         sensorData.torque = torque;
         sensorData.current = current;
@@ -381,17 +339,16 @@ extern "C" void app_main(void)
         if (gotData) {
             switch (cmd.command_type)
             {
-
             case 1:
-                atomic_store_float(&torqueSetpointGlob, cmd.value1);
+                globalVariables.setTorqueSetpoint(cmd.value1);
                 break;
 
             case 2:
-                torquePI.setKp(cmd.value1);
+                // torquePI.setKp(cmd.value1);
                 break;
 
             case 3:
-                torquePI.setKi(cmd.value1);
+                // torquePI.setKi(cmd.value1);
                 break;
 
             case 4:
@@ -399,39 +356,39 @@ extern "C" void app_main(void)
                 break;
 
             case 5:
-                atomic_store_float(&velocitySetpointGlob, cmd.value1);
+                globalVariables.setVelocitySetpoint(cmd.value1);
                 break;
 
             case 6:
-                velocityPID.setKp(cmd.value1);
+                // velocityPID.setKp(cmd.value1);
                 break;
 
             case 7:
-                velocityPID.setKi(cmd.value1);
+                // velocityPID.setKi(cmd.value1);
                 break;
 
             case 8:
-                velocityPID.setKd(cmd.value1);
+                // velocityPID.setKd(cmd.value1);
                 break;
 
             case 9:
-                atomic_store_float(&positionSetpointGlob, cmd.value1);
+                globalVariables.setPositionSetpoint(cmd.value1);
                 break;
 
             case 10:
-                positionPID.setKp(cmd.value1);
+                // positionPID.setKp(cmd.value1);
                 break;
 
             case 11:
-                positionPID.setKi(cmd.value1);
+                // positionPID.setKi(cmd.value1);
                 break;
 
             case 12:
-                positionPID.setKd(cmd.value1);
+                // positionPID.setKd(cmd.value1);
                 break;
 
             case 13:
-                drivingModeGlob = cmd.value0;
+                globalVariables.setDrivingMode(cmd.value0);
                 break;
 
             case 14:
@@ -442,21 +399,7 @@ extern "C" void app_main(void)
             }
         }
 
-        if (secondaryTaskStarted.load()) {
-            BaseType_t high_task_woken = pdFALSE;
-            TaskHandle_t task = static_cast<TaskHandle_t>(oneshotADC.taskHandle);
-            vTaskNotifyGiveFromISR(task, &high_task_woken);
-
-            int vA = oneshotADC.getA();
-            int vB = oneshotADC.getB();
-            int vC = oneshotADC.getC();
-            printf("Voltages: %i, %i, %i | %li mV | %li mA\n", vA, vB, vC, voltage, current);
-        } else {
-            printf("Not startet yet. Bus voltage: %li\n", voltage);
-        }
-        
-
-        // serialCom.update();
+        serialCom.update();
         auto endTime = esp_timer_get_time();
         loopTimeSerial = endTime - startTime;
         vTaskDelay(pdMS_TO_TICKS(50));
