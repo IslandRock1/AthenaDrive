@@ -13,6 +13,7 @@
 #include "Controller.hpp"
 #include "PID.hpp"
 #include "SerialComm.hpp"
+#include "LowpassFilter.hpp"
 #include "GlobalVariableManager.hpp"
 
 #include "SpiManagerPrimary.hpp"
@@ -103,7 +104,7 @@ void init_timer(TaskHandle_t task_handle)
     gptimer_enable(timer);
 
     gptimer_alarm_config_t alarm_config = {
-        .alarm_count = 1000,
+        .alarm_count = 300,
         .reload_count = 0,
         .flags = {
             .auto_reload_on_alarm = true,
@@ -149,6 +150,27 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     mcpwm.set_phase_voltages(0.0, 0.0, 0.0);
     spiManager.motorDriver.enable();
 
+    globalVariables.setWantedCalibrationMode(true);
+    while (!globalVariables.getActualCalibrationMode()) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    int sumAdcA = 0;
+    int sumAdcB = 0;
+    int sumAdcC = 0;
+
+    for (int i = 0; i < 10; i++) {
+        sumAdcA += oneshotADC.getA();
+        sumAdcB += oneshotADC.getB();
+        sumAdcC += oneshotADC.getC();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    float baselineAdcA = static_cast<float>(sumAdcA) / 10000.0;
+    float baselineAdcB = static_cast<float>(sumAdcB) / 10000.0;
+    float baselineAdcC = static_cast<float>(sumAdcC) / 10000.0;
+    globalVariables.setWantedCalibrationMode(false);
+
     mcpwm.set_phase_voltages(0.04, -0.02, -0.02);
     // printf("Sat phase voltages.\n");
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -190,10 +212,15 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         iteration++;
 
         spiManager.encoder.update(rotations, angle, cumAngle, velocity);
-        globalVariables.setRotations(rotations);
-
-        sumVelocity += velocity;
         angle -= angleOffset;
+        rotations *= -1;
+        angle *= -1.0f;
+        cumAngle *= -1.0f;
+        velocity *= -1.0f;
+
+        globalVariables.setRotations(rotations);
+        sumVelocity += velocity;
+        
         float elPos = angle * 20.0f;
         while (elPos >= TWO_PI) { elPos -= TWO_PI; }
         while (elPos < 0) { elPos += TWO_PI; }
@@ -222,7 +249,21 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             strengthOut = strengthOut * (1.0 - strengthFilterAlpha) + strength * strengthFilterAlpha;
         }
 
-        Output output = controller.update(strengthOut, -elPos, -velocity, 0.0, 0.0);
+        float Ia = (static_cast<float>(oneshotADC.getA()) / 1000.0f - baselineAdcA) / (40.0f * 0.0035);
+        float Ib = (static_cast<float>(oneshotADC.getB()) / 1000.0f - baselineAdcB) / (40.0f * 0.0035);
+        float Ic = (static_cast<float>(oneshotADC.getC()) / 1000.0f - baselineAdcC) / (40.0f * 0.0035);
+        // If using Ia and Ib in controller, it starts shaking like crazy.
+        // I am 99% sure there is something wrong with the resulting current.
+        // Either analog reading, current calculations, calibration.. idk.
+
+        Output output = controller.update(-strengthOut, elPos, velocity, 0.0, 0.0);
+        float maxOut = std::max(std::abs(output.phaseA), std::max(std::abs(output.phaseB), std::abs(output.phaseC)));
+        if (maxOut > 0.8) {
+            float k = 0.8 / maxOut;
+            output.phaseA *= k;
+            output.phaseB *= k;
+            output.phaseC *= k;
+        }
         auto err = mcpwm.set_phase_voltages(output.phaseA, output.phaseB, output.phaseC);
     
         int64_t endTime = esp_timer_get_time();
@@ -242,6 +283,13 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
                 torqueSetpoint = 0.0f;
             }
 
+            positionPID.setKp(globalVariables.getPositionKp());
+            positionPID.setKi(globalVariables.getPositionKi());
+            positionPID.setKd(globalVariables.getPositionKd());
+            velocityPID.setKp(globalVariables.getVelocityKp());
+            velocityPID.setKi(globalVariables.getVelocityKi());
+            velocityPID.setKd(globalVariables.getVelocityKd());
+
             globalVariables.setCumAngle(cumAngle);
 
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
@@ -250,7 +298,6 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
             globalVariables.setAvgLooptime(avgLoopTime);
             globalVariables.setAvgVelocity(avgVelocity);
-            globalVariables.setAvgStrength(avgStrength);
 
             sumLoopTime = 0;
             sumVelocity = 0;
@@ -287,7 +334,7 @@ extern "C" void app_main(void)
     setupTask();
     I2CManager i2cManager{I2C_SDA, I2C_SCL};
     i2cManager.writePin(MULTIPLEXER_MOTOR_ENABLE, true);
-    i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
+    i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, false);
 
     SerialCom serialCom{};
     SensorData sensorData{};
@@ -298,12 +345,17 @@ extern "C" void app_main(void)
     bool state = false;
     int iteration = 0;
 
-    globalVariables.setDrivingMode(1);
-    globalVariables.setTorqueSetpoint(0.1f);
-
     while (1) {
-
         auto startTime = esp_timer_get_time();
+
+        if (globalVariables.getWantedCalibrationMode()) {
+            i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, true);
+            globalVariables.setActualCalibrationMode(true);
+        } else {
+            i2cManager.writePin(MULTIPLEXER_MOTOR_CALIBRATION, false);
+            globalVariables.setActualCalibrationMode(false);
+        }
+
         auto current = i2cManager.getCurrent_mA();
         auto voltage = i2cManager.getBusVoltage_mV();
         globalVariables.setVoltage(voltage);
@@ -344,11 +396,11 @@ extern "C" void app_main(void)
                 break;
 
             case 2:
-                // torquePI.setKp(cmd.value1);
+                globalVariables.setTorqueKp(cmd.value1);
                 break;
 
             case 3:
-                // torquePI.setKi(cmd.value1);
+                globalVariables.setTorqueKi(cmd.value1);
                 break;
 
             case 4:
@@ -360,15 +412,15 @@ extern "C" void app_main(void)
                 break;
 
             case 6:
-                // velocityPID.setKp(cmd.value1);
+                globalVariables.setVelocityKp(cmd.value1);
                 break;
 
             case 7:
-                // velocityPID.setKi(cmd.value1);
+                globalVariables.setVelocityKi(cmd.value1);
                 break;
 
             case 8:
-                // velocityPID.setKd(cmd.value1);
+                globalVariables.setVelocityKd(cmd.value1);
                 break;
 
             case 9:
@@ -376,15 +428,15 @@ extern "C" void app_main(void)
                 break;
 
             case 10:
-                // positionPID.setKp(cmd.value1);
+                globalVariables.setPositionKp(cmd.value1);
                 break;
 
             case 11:
-                // positionPID.setKi(cmd.value1);
+                globalVariables.setPositionKi(cmd.value1);
                 break;
 
             case 12:
-                // positionPID.setKd(cmd.value1);
+                globalVariables.setPositionKd(cmd.value1);
                 break;
 
             case 13:
