@@ -9,4 +9,4 @@ public:
 private:
     float filtered = 0;
     float _alpha;
-}
+};
