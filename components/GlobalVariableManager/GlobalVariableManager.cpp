@@ -30,6 +30,14 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
 }
 
 // Measurements / states
+uint32_t GlobalVariableManager::getNumPolePairs() {
+    return _numPolePairs.load();
+}
+
+void GlobalVariableManager::setNumPolePairs(uint32_t value) {
+    _numPolePairs.store(value);
+}
+
 bool GlobalVariableManager::getWantedCalibrationMode() {
     return _wantedCalibrationMode.load();
 }

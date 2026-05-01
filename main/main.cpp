@@ -197,6 +197,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     float velocitySetpoint = globalVariables.getVelocitySetpoint();
     float torqueSetpoint = globalVariables.getTorqueSetpoint();
 
+    float numPolePairs = globalVariables.getNumPolePairs();
     float strengthOut = 0.0f;
     float strengthFilterAlpha = 0.001f;
 
@@ -221,7 +222,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         globalVariables.setRotations(rotations);
         sumVelocity += velocity;
         
-        float elPos = angle * 20.0f;
+        float elPos = angle * numPolePairs;
         while (elPos >= TWO_PI) { elPos -= TWO_PI; }
         while (elPos < 0) { elPos += TWO_PI; }
 
@@ -291,6 +292,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             velocityPID.setKd(globalVariables.getVelocityKd());
 
             globalVariables.setCumAngle(cumAngle);
+            numPolePairs = globalVariables.getNumPolePairs();
 
             float avgLoopTime = static_cast<float>(sumLoopTime) / static_cast<float>(numLoops);
             float avgVelocity = sumVelocity / static_cast<float>(numLoops);
@@ -445,6 +447,10 @@ extern "C" void app_main(void)
 
             case 14:
                 currentLimit = cmd.value0;
+                break;
+
+            case 15:
+                globalVariables.setNumPolePairs(cmd.value0);
 
             default:
                 break;

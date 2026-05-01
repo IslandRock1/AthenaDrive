@@ -10,6 +10,9 @@ public:
     GlobalVariableManager();
 
     // Measurements / state
+    uint32_t getNumPolePairs();
+    void setNumPolePairs(uint32_t value);
+
     bool getWantedCalibrationMode();
     void setWantedCalibrationMode(bool value);
 
@@ -105,6 +108,7 @@ private:
     void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
+    std::atomic_uint32_t _numPolePairs{7};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
     std::atomic_uint32_t _rotations{0};
