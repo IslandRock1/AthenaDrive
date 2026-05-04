@@ -156,6 +156,10 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         cosSum += cos(angle);
     }
     angleOffset = atan2(sinSum, cosSum);
+    // Needs to add sign change based on velocity after angle offset.
+    // Sometimes positive torque => positive angle/velocity
+    // Other times positive torque => negative
+    // Needs to offset angleOffset by PI/2 based on sign.
 
     LowpassFilter lowpassVelocity{0.001};
     LowpassFilter lowpassStrength{0.001};
