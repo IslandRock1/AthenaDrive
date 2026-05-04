@@ -9,8 +9,6 @@ class GlobalVariableManager {
 public:
     GlobalVariableManager();
 
-    std::atomic_uint32_t debug{0};
-
     static constexpr float TWO_PI   = 6.283185307179586f;
     static constexpr float PI       = 3.141592653589793f;
     static constexpr float PI_DIV_2 = 1.570796326794897f;
