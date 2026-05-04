@@ -9,6 +9,12 @@ class GlobalVariableManager {
 public:
     GlobalVariableManager();
 
+    std::atomic_uint32_t debug{0};
+
+    static constexpr float TWO_PI   = 6.283185307179586f;
+    static constexpr float PI       = 3.141592653589793f;
+    static constexpr float PI_DIV_2 = 1.570796326794897f;
+
     // Measurements / state
     uint32_t getNumPolePairs();
     void setNumPolePairs(uint32_t value);
@@ -103,10 +109,10 @@ public:
     uint32_t getUpdateFreqPosition();
     void setUpdateFreqPosition(uint32_t value);
 
+    static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
+    static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
 private:
-    void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
-    float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
     std::atomic_uint32_t _numPolePairs{7};
     std::atomic_bool _wantedCalibrationMode{false};
@@ -146,3 +152,5 @@ private:
     std::atomic_uint32_t _position_setpoint{0};
     std::atomic_uint32_t _update_freq_position{100};
 };
+
+extern GlobalVariableManager globalVariableManager;

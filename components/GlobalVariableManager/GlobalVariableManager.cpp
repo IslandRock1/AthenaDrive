@@ -1,7 +1,7 @@
 #include "GlobalVariableManager.hpp"
-
 #include <cstring>
 
+GlobalVariableManager globalVariableManager;
 
 GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_torqueKp, 0.0f);
