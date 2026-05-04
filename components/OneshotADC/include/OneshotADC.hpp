@@ -1,4 +1,6 @@
 
+#pragma once
+
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
