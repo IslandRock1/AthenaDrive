@@ -5,8 +5,9 @@ class LowpassFilter {
 public:
     LowpassFilter(float alpha);
     float update(float value);
+    float getValue();
 
 private:
-    float filtered = 0;
+    float _filtered = 0;
     float _alpha;
 };

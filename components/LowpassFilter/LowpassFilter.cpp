@@ -6,6 +6,10 @@ LowpassFilter::LowpassFilter(float alpha) {
 }
 
 float LowpassFilter::update(float value) {
-    filtered = filtered * (1.0f - _alpha) + value * _alpha;
-    return filtered;
+    _filtered = _filtered * (1.0f - _alpha) + value * _alpha;
+    return _filtered;
+}
+
+float LowpassFilter::getValue() {
+    return _filtered;
 }
