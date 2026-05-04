@@ -1,9 +1,18 @@
 #include "GlobalVariableManager.hpp"
-
 #include <cstring>
 
+GlobalVariableManager globalVariableManager;
 
-GlobalVariableManager::GlobalVariableManager() = default;
+GlobalVariableManager::GlobalVariableManager() {
+    atomic_store_float(_torqueKp, 0.0f);
+    atomic_store_float(_torqueKi, 0.0f);
+    atomic_store_float(_velocityKp, 0.0f);
+    atomic_store_float(_velocityKi, 0.0f);
+    atomic_store_float(_velocityKd, 0.0f);
+    atomic_store_float(_positionKp, 0.0f);
+    atomic_store_float(_positionKi, 0.0f);
+    atomic_store_float(_positionKd, 0.0f);
+}
 
 void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
     static_assert(sizeof(float) == sizeof(uint32_t), "float must be 32-bit");
@@ -21,6 +30,30 @@ float GlobalVariableManager::atomic_load_float(std::atomic_uint32_t& atomicValue
 }
 
 // Measurements / states
+uint32_t GlobalVariableManager::getNumPolePairs() {
+    return _numPolePairs.load();
+}
+
+void GlobalVariableManager::setNumPolePairs(uint32_t value) {
+    _numPolePairs.store(value);
+}
+
+bool GlobalVariableManager::getWantedCalibrationMode() {
+    return _wantedCalibrationMode.load();
+}
+
+void GlobalVariableManager::setWantedCalibrationMode(bool value) {
+    _wantedCalibrationMode.store(value);
+}
+
+bool GlobalVariableManager::getActualCalibrationMode() {
+    return _actualCalibrationMode.load();
+}
+
+void GlobalVariableManager::setActualCalibrationMode(bool value) {
+    _actualCalibrationMode.store(value);
+}
+
 int32_t GlobalVariableManager::getRotations() {
     return _rotations.load(std::memory_order_relaxed);
 }
@@ -98,7 +131,7 @@ uint32_t GlobalVariableManager::getVoltage() {
 }
 
 void GlobalVariableManager::setVoltage(uint32_t value) {
-    _voltage.store(value, std::memory_order_relaxed)
+    _voltage.store(value, std::memory_order_relaxed);
 }
 
 uint32_t GlobalVariableManager::getDrivingMode() {
@@ -126,6 +159,22 @@ void GlobalVariableManager::setUpdateFreqTransmition(uint32_t value) {
 }
 
 // Torque
+float GlobalVariableManager::getTorqueKp() {
+    return atomic_load_float(_torqueKp);
+}
+
+void GlobalVariableManager::setTorqueKp(float value) {
+    atomic_store_float(_torqueKp, value);
+}
+
+float GlobalVariableManager::getTorqueKi() {
+    return atomic_load_float(_torqueKi);
+}
+
+void GlobalVariableManager::setTorqueKi(float value) {
+    atomic_store_float(_torqueKi, value);
+}
+
 float GlobalVariableManager::getTorqueSetpoint() {
     return atomic_load_float(_torque_setpoint);
 }
@@ -143,6 +192,30 @@ void GlobalVariableManager::setUpdateFreqTorque(uint32_t value) {
 }
 
 // Velocity
+float GlobalVariableManager::getVelocityKp() {
+    return atomic_load_float(_velocityKp);
+}
+
+void GlobalVariableManager::setVelocityKp(float value) {
+    atomic_store_float(_velocityKp, value);
+}
+
+float GlobalVariableManager::getVelocityKi() {
+    return atomic_load_float(_velocityKi);
+}
+
+void GlobalVariableManager::setVelocityKi(float value) {
+    atomic_store_float(_velocityKi, value);
+}
+
+float GlobalVariableManager::getVelocityKd() {
+    return atomic_load_float(_velocityKd);
+}
+
+void GlobalVariableManager::setVelocityKd(float value) {
+    atomic_store_float(_velocityKd, value);
+}
+
 float GlobalVariableManager::getVelocitySetpoint() {
     return atomic_load_float(_velocity_setpoint);
 }
@@ -160,6 +233,30 @@ void GlobalVariableManager::setUpdateFreqVelocity(uint32_t value) {
 }
 
 // Position
+float GlobalVariableManager::getPositionKp() {
+    return atomic_load_float(_positionKp);
+}
+
+void GlobalVariableManager::setPositionKp(float value) {
+    atomic_store_float(_positionKp, value);
+}
+
+float GlobalVariableManager::getPositionKi() {
+    return atomic_load_float(_positionKi);
+}
+
+void GlobalVariableManager::setPositionKi(float value) {
+    atomic_store_float(_positionKi, value);
+}
+
+float GlobalVariableManager::getPositionKd() {
+    return atomic_load_float(_positionKd);
+}
+
+void GlobalVariableManager::setPositionKd(float value) {
+    atomic_store_float(_positionKd, value);
+}
+
 float GlobalVariableManager::getPositionSetpoint() {
     return atomic_load_float(_position_setpoint);
 }
