@@ -9,6 +9,7 @@ public:
     void setKd(float kd);
     
     void setSetpoint(float sp);
+    void setMaxOut(float maxOut) { _maxOut = std::abs(maxOut); }
     float update(float currVal, float dt);
 
 private:
@@ -16,5 +17,6 @@ private:
     float _setpoint = 0.0;
     float _integral = 0.0;
     float _prevError = 0.0;
+    float _maxOut = 100.0;
     bool _firstRun = true;
 };

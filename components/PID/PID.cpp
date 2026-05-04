@@ -27,11 +27,17 @@ float PID_Reg::update(float currVal, float dt) {
 
     _integral += error * dt;
 
-    float derivative = 0.0;
-    if (_firstRun) {
-        _firstRun = false;
-    } else if (dt != 0) {
+    float derivative = 0.0f;
+    if (!_firstRun && dt > 0.0f) {
         derivative = (error - _prevError) / dt;
+    }
+    _firstRun = false;
+
+    float out = _kp * error + _ki * _integral + _kd * derivative;
+
+    if (std::abs(out) > _maxOut) {
+        _integral -= error * dt;    // anti-windup
+        out = _maxOut * (out > 0 ? 1.0f : -1.0f);
     }
 
     _prevError = error;
