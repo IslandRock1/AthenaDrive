@@ -182,6 +182,9 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     gpio_set_level(GPIO_NUM_2, true);
     bool ledState = true;
 
+    bool startupState = true;
+    float outSign = 1.0f;
+
     uint64_t iteration = 0;
     initTimer(control_task_handle);
     while (1) {
@@ -203,14 +206,10 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         while (elPos >= GlobalVariableManager::TWO_PI) { elPos -= GlobalVariableManager::TWO_PI; }
         while (elPos < 0) { elPos += GlobalVariableManager::TWO_PI; }
 
-        float deltaOffset = 0.0f;
         float strength = 0.0f;
-
         if ((drivingMode > 2) && (iteration % updateFreqPos == 0)) {
             positionPID.setSetpoint(positionSetpoint);
             velocitySetpoint = positionPID.update(cumAngle, static_cast<float>(updateFreqPos));
-
-            float deltaOffset = positionSetpoint - cumAngle;
         }
 
         if ((drivingMode > 1) && (iteration % updateFreqVel == 0)) {
@@ -236,8 +235,11 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
         lowpassStrength.update(strengthOut);
 
-        // Using strengthOut to get positive strength to line up with positive position/velocity.
-        Output output = controller.update(strengthOut, elPos, velocity, 0.0, 0.0);
+        Output output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
+        if (startupState) {
+            output = controller.update(10.0, elPos, velocity, 0.0, 0.0);
+        }
+        
         float maxOut = std::max(std::abs(output.phaseA), std::max(std::abs(output.phaseB), std::abs(output.phaseC)));
         if (maxOut > 0.8) {
             float k = 0.8 / maxOut;
@@ -252,6 +254,13 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
         numLoops++;
         if (numLoops == 100) {
+            if (startupState) {
+                startupState = false;
+                if (velocity < 0.0) {
+                    outSign = -1.0f;
+                }
+            }
+
             drivingMode = globalVariableManager.getDrivingMode();
             if (drivingMode == DrivingMode::Position) {
                 positionSetpoint = globalVariableManager.getPositionSetpoint();
