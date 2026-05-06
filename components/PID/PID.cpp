@@ -41,5 +41,5 @@ float PID_Reg::update(float currVal, float dt) {
     }
 
     _prevError = error;
-    return _kp * error + _ki * _integral + _kd * derivative;
+    return out;
 }
