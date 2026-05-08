@@ -169,6 +169,15 @@ extern "C" void app_main(void)
 
             case 15:
                 globalVariableManager.setNumPolePairs(cmd.value0);
+                break;
+            
+            case 16:
+                globalVariableManager.setOpenLoopSpeed(cmd.value1);
+                break;
+            
+            case 17:
+                globalVariableManager.setOpenLoopStrength(cmd.value1);
+                break;
 
             default:
                 break;
