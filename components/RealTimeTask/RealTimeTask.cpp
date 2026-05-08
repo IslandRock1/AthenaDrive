@@ -4,6 +4,7 @@
 gptimer_handle_t timer = NULL;
 TaskHandle_t control_task_handle = NULL;
 OneshotADC oneshotADC;
+constexpr uint64_t LOOP_TIME_US = 300;
 
 void setupSPI(SpiManagerPrimary &spiManager, MotorTaskConfig config) {
     SpiConfigPrimary configPrimary = {
@@ -70,7 +71,7 @@ void initTimer(TaskHandle_t task_handle)
     gptimer_enable(timer);
 
     gptimer_alarm_config_t alarm_config = {
-        .alarm_count = 300,
+        .alarm_count = LOOP_TIME_US,
         .reload_count = 0,
         .flags = {
             .auto_reload_on_alarm = true,
@@ -171,6 +172,10 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     float velocitySetpoint = globalVariableManager.getVelocitySetpoint();
     float torqueSetpoint = globalVariableManager.getTorqueSetpoint();
 
+    float openLoopPos = 0.0f;
+    float openLoopSpeed = globalVariableManager.getOpenLoopSpeed();
+    float openLoopStrength = globalVariableManager.getOpenLoopStrength();
+
     uint32_t drivingMode = globalVariableManager.getDrivingMode();
     uint32_t updateFreqPos = globalVariableManager.getUpdateFreqPosition();
     uint32_t updateFreqVel = globalVariableManager.getUpdateFreqVelocity();
@@ -240,8 +245,20 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             output = controller.update(10.0, elPos, velocity, 0.0, 0.0);
         }
         
+        if (drivingMode == DrivingMode::OpenLoop) {
+
+            // speedScale makes the unit op openLoopSpeed to be rounds/s
+            constexpr float speedScale = 6.28f * static_cast<float>(LOOP_TIME_US) * 0.000001;
+            openLoopPos += openLoopSpeed * speedScale;
+
+            output.phaseA = openLoopStrength * std::sin(openLoopPos);
+            output.phaseB = openLoopStrength * std::sin(openLoopPos + GlobalVariableManager::TWO_PI / 3.0f);
+            output.phaseC = openLoopStrength * std::sin(openLoopPos - GlobalVariableManager::TWO_PI / 3.0f);
+        }
+
         float maxOut = std::max(std::abs(output.phaseA), std::max(std::abs(output.phaseB), std::abs(output.phaseC)));
         if (maxOut > 0.8) {
+            // maxOut > 0.8 => k < 1.0
             float k = 0.8 / maxOut;
             output.phaseA *= k;
             output.phaseB *= k;
@@ -268,6 +285,9 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
                 velocitySetpoint = globalVariableManager.getVelocitySetpoint();
             } else if (drivingMode == DrivingMode::Torque) {
                 torqueSetpoint = globalVariableManager.getTorqueSetpoint();
+            } else if (drivingMode == DrivingMode::OpenLoop) {
+                openLoopSpeed = globalVariableManager.getOpenLoopSpeed();
+                openLoopStrength = globalVariableManager.getOpenLoopStrength();
             } else {
                 positionSetpoint = 0.0f;
                 velocitySetpoint = 0.0f;
@@ -299,7 +319,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
             uint16_t address = 0x00;
             uint16_t data = 0x00;
-            spiManager.motorDriver.readRegister(address, data);
+            // spiManager.motorDriver.readRegister(address, data);
             // printf("Error register: %i\n", data);
         }
     }
