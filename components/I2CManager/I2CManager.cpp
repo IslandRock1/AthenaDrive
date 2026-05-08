@@ -21,10 +21,11 @@ I2CManager::I2CManager(gpio_num_t sda, gpio_num_t scl) {
         i2c_new_master_bus(&bus_config, &bus)
     );
 
-    _currentSensor = std::make_unique<INA226>(bus, 0x40, 100000);
+    // TODO: implement code for INA238 or whatever (new PCB, new sensor, not INA226 anymore)
+    // _currentSensor = std::make_unique<INA226>(bus, 0x40, 100000);
     // Should probably not hardcode this.
     // Shunt = 3.5 mOhm | Max Current = 30A
-    _currentSensor->InitDriver(3.5, 30.0);
+    // _currentSensor->InitDriver(3.5, 30.0);
 
 
     _multiplexer.begin(bus, 0x20, 100000);
@@ -45,9 +46,11 @@ void I2CManager::writePin(int pin, bool value) {
 }
 
 int32_t I2CManager::getBusVoltage_mV() {
+    return  0.0;
     return _currentSensor->GetBusVoltage_mV();
 }
 
 int32_t I2CManager::getCurrent_mA() {
+    return 0.0;
     return _currentSensor->GetCurrent_uA() * 0.001;
 }
