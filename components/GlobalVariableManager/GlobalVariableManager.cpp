@@ -12,6 +12,9 @@ GlobalVariableManager::GlobalVariableManager() {
     atomic_store_float(_positionKp, 0.0f);
     atomic_store_float(_positionKi, 0.0f);
     atomic_store_float(_positionKd, 0.0f);
+
+    atomic_store_float(_openLoopSpeed, 0.0f);
+    atomic_store_float(_openLoopStrength, 0.0f);
 }
 
 void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
@@ -271,4 +274,20 @@ uint32_t GlobalVariableManager::getUpdateFreqPosition() {
 
 void GlobalVariableManager::setUpdateFreqPosition(uint32_t value) {
     _update_freq_position.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getOpenLoopSpeed() {
+    return atomic_load_float(_openLoopSpeed);
+}
+
+void GlobalVariableManager::setOpenLoopSpeed(float value) {
+    atomic_store_float(_openLoopSpeed, value);
+}
+
+float GlobalVariableManager::getOpenLoopStrength() {
+    return atomic_load_float(_openLoopStrength);
+}
+
+void GlobalVariableManager::setOpenLoopStrength(float value) {
+    atomic_store_float(_openLoopStrength, value);
 }

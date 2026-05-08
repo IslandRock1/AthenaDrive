@@ -107,6 +107,11 @@ public:
     uint32_t getUpdateFreqPosition();
     void setUpdateFreqPosition(uint32_t value);
 
+    float getOpenLoopSpeed();
+    void setOpenLoopSpeed(float value);
+    float getOpenLoopStrength();
+    void setOpenLoopStrength(float value);
+
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
@@ -149,6 +154,9 @@ private:
     std::atomic_uint32_t _positionKd;
     std::atomic_uint32_t _position_setpoint{0};
     std::atomic_uint32_t _update_freq_position{100};
+
+    std::atomic_uint32_t _openLoopSpeed;
+    std::atomic_uint32_t _openLoopStrength;
 };
 
 extern GlobalVariableManager globalVariableManager;
