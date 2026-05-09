@@ -108,7 +108,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     // Wait 1 second.
     for (int i = 0; i < 100; i++) {
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         globalVariableManager.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -143,14 +143,14 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     mcpwm.set_phase_voltages(0.04, -0.02, -0.02);
     // printf("Sat phase voltages.\n");
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(100));
     float numReadings = 0.0f;
     float sinSum = 0.0f;
     float cosSum = 0.0f;
 
     for (int i = 0; i < 10; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         numReadings += 1.0;
 
         sinSum += sin(angle);
@@ -162,15 +162,15 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     // Other times positive torque => negative
     // Needs to offset angleOffset by PI/2 based on sign.
 
-    LowpassFilter lowpassIa{0.001};
-    LowpassFilter lowpassIb{0.001};
-    LowpassFilter lowpassIc{0.001};
+    LowpassFilter lowpassIa{0.01};
+    LowpassFilter lowpassIb{0.01};
+    LowpassFilter lowpassIc{0.01};
 
-    LowpassFilter lowpassAcceleration{0.001};
-    LowpassFilter lowpassVelocity{0.001};
-    LowpassFilter lowpassStrength{0.001};
-    LowpassFilter lowpassLoopTime{0.001};
-    LowpassFilter lowpassStrengthOut{0.001};
+    LowpassFilter lowpassAcceleration{0.01};
+    LowpassFilter lowpassVelocity{0.01};
+    LowpassFilter lowpassStrength{0.01};
+    LowpassFilter lowpassLoopTime{0.01};
+    LowpassFilter lowpassStrengthOut{0.01};
     static float numLoops = 0;
 
     float positionSetpoint = globalVariableManager.getPositionSetpoint();
@@ -233,7 +233,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             strength = torqueSetpoint;
         }
 
-        if (drivingMode == 0) {
+        if (drivingMode == DrivingMode::Disabled) {
             strength = 0.0f;
         }
 
@@ -250,15 +250,19 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
         lowpassStrength.update(strengthOut);
 
-        Output output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
+        Output output{};
+        if (drivingMode != DrivingMode::Disabled) {
+            output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
+        }
+        
         if (startupState) {
-            output = controller.update(10.0, elPos, velocity, 0.0, 0.0);
+            output = controller.update(10.0, elPos, 0.0, 0.0, 0.0);
         }
         
         if (drivingMode == DrivingMode::OpenLoop) {
 
             // speedScale makes the unit op openLoopSpeed to be rounds/s
-            constexpr float speedScale = 6.28f * static_cast<float>(LOOP_TIME_US) * 0.000001;
+            float speedScale = 6.28f * static_cast<float>(LOOP_TIME_US) * 0.000001 * NumPolePairs;
             openLoopPos += openLoopSpeed * speedScale;
 
             output.phaseA = openLoopStrength * std::sin(openLoopPos);
@@ -281,6 +285,8 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
         numLoops++;
         if (numLoops == 100) {
+            numLoops = 0;
+
             if (startupState) {
                 startupState = false;
                 if (velocity < 0.0) {
@@ -328,7 +334,6 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             globalVariableManager.setAvgVelocity(avgVelocity);
             globalVariableManager.setAvgAcceleration(avgAccelera);
             globalVariableManager.setAvgStrength(avgStrength);
-            numLoops = 0;
 
             ledState = !ledState;
             gpio_set_level(GPIO_NUM_2, ledState);
