@@ -8,9 +8,13 @@ struct SensorData {
 	uint32_t timestamp_ms;
 	float position;
 	float velocity;
+	float acceleration;
 	float torque;
 	float current;
 	float voltage;
+	float Ia;
+	float Ib;
+	float Ic;
 	uint32_t loopTimeMotor;
 	uint32_t loopTimeSerial;
 };
