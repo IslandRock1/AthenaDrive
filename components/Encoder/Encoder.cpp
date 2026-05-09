@@ -32,7 +32,7 @@ esp_err_t Encoder::begin(EncoderConfig config) {
     return err;
 }
 
-esp_err_t Encoder::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity) {
+esp_err_t Encoder::update(int32_t &rotations, float &angle, float &cumAngle, float &velocity, float &acceleration) {
     uint16_t rawAngle = 0;
     esp_err_t err = readRegister(ENCODER_REG_ANGLE, rawAngle);
     if (err != ESP_OK) return err;
@@ -74,6 +74,11 @@ esp_err_t Encoder::update(int32_t &rotations, float &angle, float &cumAngle, flo
     velocity = (deltaT > 0.0f) ? (deltaAng / deltaT) : 0.0f;
     _prevTime = now;
     _prevAngleRad = cumAngleRad;
+
+    // Acc
+    float deltaVel = velocity - _prevVelocity;
+    acceleration = (deltaT > 0.0f) ? (deltaVel / deltaT) : 0.0f;
+    _prevVelocity = velocity;
 
     rotations = _rotations / 16384;
     angle = angleRad;
