@@ -15,6 +15,10 @@ GlobalVariableManager::GlobalVariableManager() {
 
     atomic_store_float(_openLoopSpeed, 0.0f);
     atomic_store_float(_openLoopStrength, 0.0f);
+
+    atomic_store_float(_Ia, 0.0f);
+    atomic_store_float(_Ib, 0.0f);
+    atomic_store_float(_Ic, 0.0f);
 }
 
 void GlobalVariableManager::atomic_store_float(std::atomic_uint32_t& atomicValue, float value) {
@@ -159,6 +163,25 @@ uint32_t GlobalVariableManager::getUpdateFreqTransmition() {
 
 void GlobalVariableManager::setUpdateFreqTransmition(uint32_t value) {
     _update_freq_transmition.store(value, std::memory_order_relaxed);
+}
+
+float GlobalVariableManager::getIa() {
+    return atomic_load_float(_Ia);
+}
+void GlobalVariableManager::setIa(float value) {
+    atomic_store_float(_Ia, value);
+}
+float GlobalVariableManager::getIb() {
+    return atomic_load_float(_Ib);
+}
+void GlobalVariableManager::setIb(float value) {
+    atomic_store_float(_Ib, value);
+}
+float GlobalVariableManager::getIc() {
+    return atomic_load_float(_Ic);
+}
+void GlobalVariableManager::setIc(float value) {
+    atomic_store_float(_Ic, value);
 }
 
 // Torque

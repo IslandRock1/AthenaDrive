@@ -62,6 +62,13 @@ public:
     uint32_t getUpdateFreqTransmition();
     void setUpdateFreqTransmition(uint32_t value);
 
+    float getIa();
+    void setIa(float value);
+    float getIb();
+    void setIb(float value);
+    float getIc();
+    void setIc(float value);
+
     // Torque
     float getTorqueKp();
     void setTorqueKp(float value);
@@ -137,6 +144,10 @@ private:
     std::atomic_uint32_t _current_limit{0};
 
     std::atomic_uint32_t _update_freq_transmition{100};     // ms
+
+    std::atomic_uint32_t _Ia;
+    std::atomic_uint32_t _Ib;
+    std::atomic_uint32_t _Ic;
 
     std::atomic_uint32_t _torqueKp;
     std::atomic_uint32_t _torqueKi;
