@@ -47,7 +47,8 @@ void setupTask() {
 }
 
 static const char* TAG = "W5500";
-static spi_device_handle_t spiDevice = nullptr;
+static spi_device_handle_t spiDeviceInternal = nullptr;
+static spi_device_handle_t spiDeviceExternal = nullptr;
 
 // ── W5500 control byte helpers ────────────────────────────────────────────────
 // BSB: 00000 = common regs, 00001 = socket regs, 00010 = socket TX, 00011 = socket RX
@@ -90,7 +91,7 @@ static spi_device_handle_t spiDevice = nullptr;
 #define CMD_SEND  0x20
 
 // ── Low-level SPI read / write ─────────────────────────────────────────────────
-static void w5500_write(uint16_t addr, uint8_t block, const uint8_t* data, size_t len) {
+static void w5500_write(uint16_t addr, uint8_t block, const uint8_t* data, size_t len, spi_device_handle_t &device) {
     uint8_t buf[3 + len];
     buf[0] = (uint8_t)(addr >> 8);
     buf[1] = (uint8_t)(addr & 0xFF);
@@ -100,10 +101,10 @@ static void w5500_write(uint16_t addr, uint8_t block, const uint8_t* data, size_
     spi_transaction_t t = {};
     t.length    = (3 + len) * 8;
     t.tx_buffer = buf;
-    spi_device_polling_transmit(spiDevice, &t);
+    spi_device_polling_transmit(device, &t);
 }
 
-static void w5500_read(uint16_t addr, uint8_t block, uint8_t* out, size_t len) {
+static void w5500_read(uint16_t addr, uint8_t block, uint8_t* out, size_t len, spi_device_handle_t &device) {
     uint8_t tx[3 + len];
     uint8_t rx[3 + len];
     memset(tx, 0, sizeof(tx));
@@ -117,21 +118,21 @@ static void w5500_read(uint16_t addr, uint8_t block, uint8_t* out, size_t len) {
     t.length    = (3 + len) * 8;
     t.tx_buffer = tx;
     t.rx_buffer = rx;
-    spi_device_polling_transmit(spiDevice, &t);
+    spi_device_polling_transmit(device, &t);
 
     memcpy(out, rx + 3, len);  // skip the 3 header echo bytes
 }
 
 // Convenience wrappers for single bytes / 16-bit registers
-static void     w5500_write8 (uint16_t a, uint8_t b, uint8_t v)  { w5500_write(a, b, &v, 1); }
-static uint8_t  w5500_read8  (uint16_t a, uint8_t b)             { uint8_t v; w5500_read(a, b, &v, 1); return v; }
-static void     w5500_write16(uint16_t a, uint8_t b, uint16_t v) { uint8_t buf[2] = {(uint8_t)(v>>8), (uint8_t)v}; w5500_write(a, b, buf, 2); }
-static uint16_t w5500_read16 (uint16_t a, uint8_t b)             { uint8_t buf[2]; w5500_read(a, b, buf, 2); return (buf[0]<<8)|buf[1]; }
+static void     w5500_write8 (uint16_t a, uint8_t b, uint8_t v, spi_device_handle_t &device)  { w5500_write(a, b, &v, 1, device); }
+static uint8_t  w5500_read8  (uint16_t a, uint8_t b, spi_device_handle_t &device)             { uint8_t v; w5500_read(a, b, &v, 1, device); return v; }
+static void     w5500_write16(uint16_t a, uint8_t b, uint16_t v, spi_device_handle_t &device) { uint8_t buf[2] = {(uint8_t)(v>>8), (uint8_t)v}; w5500_write(a, b, buf, 2, device); }
+static uint16_t w5500_read16 (uint16_t a, uint8_t b, spi_device_handle_t &device)             { uint8_t buf[2]; w5500_read(a, b, buf, 2, device); return (buf[0]<<8)|buf[1]; }
 
 // ── Network init ───────────────────────────────────────────────────────────────
-static void w5500_net_init() {
+static void w5500_net_init(spi_device_handle_t &device) {
     // Software reset
-    w5500_write8(REG_MR, W5500_COMMON_REG, 0x80);
+    w5500_write8(REG_MR, W5500_COMMON_REG, 0x80, device);
     vTaskDelay(pdMS_TO_TICKS(100));
 
     uint8_t mac[6]     = { 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01 };
@@ -139,56 +140,56 @@ static void w5500_net_init() {
     uint8_t subnet[4]  = { 255, 255, 255, 0 };
     uint8_t ip[4]      = { 192, 168, 50, 10 };  // ← pick a free IP on your LAN
 
-    w5500_write(REG_SHAR, W5500_COMMON_REG, mac,     6);
-    w5500_write(REG_GAR,  W5500_COMMON_REG, gateway, 4);
-    w5500_write(REG_SUBR, W5500_COMMON_REG, subnet,  4);
-    w5500_write(REG_SIPR, W5500_COMMON_REG, ip,      4);
+    w5500_write(REG_SHAR, W5500_COMMON_REG, mac,     6, device);
+    w5500_write(REG_GAR,  W5500_COMMON_REG, gateway, 4, device);
+    w5500_write(REG_SUBR, W5500_COMMON_REG, subnet,  4, device);
+    w5500_write(REG_SIPR, W5500_COMMON_REG, ip,      4, device);
 }
 
 // ── Open socket 0 in UDP mode ─────────────────────────────────────────────────
-static void socket_udp_open(uint8_t skt, uint16_t port) {
-    w5500_write8 (Sn_MR,   W5500_SKT_REG(skt), MR_UDP);
-    w5500_write16(Sn_PORT, W5500_SKT_REG(skt), port);
-    w5500_write8 (Sn_CR,   W5500_SKT_REG(skt), CMD_OPEN);
+static void socket_udp_open(uint8_t skt, uint16_t port, spi_device_handle_t &device) {
+    w5500_write8 (Sn_MR,   W5500_SKT_REG(skt), MR_UDP, device);
+    w5500_write16(Sn_PORT, W5500_SKT_REG(skt), port, device);
+    w5500_write8 (Sn_CR,   W5500_SKT_REG(skt), CMD_OPEN, device);
 
     // Wait until SOCK_UDP
-    while (w5500_read8(Sn_SR, W5500_SKT_REG(skt)) != SOCK_UDP) {
+    while (w5500_read8(Sn_SR, W5500_SKT_REG(skt), device) != SOCK_UDP) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     ESP_LOGI(TAG, "Socket %d open on UDP port %d", skt, port);
 }
 
 static void socket_udp_send(uint8_t skt, uint8_t* destIp, uint16_t destPort,
-                             const uint8_t* data, uint16_t len) {
+                             const uint8_t* data, uint16_t len, spi_device_handle_t &device) {
     // Set destination IP and port
-    w5500_write(Sn_DIPR,  W5500_SKT_REG(skt), destIp, 4);
-    w5500_write16(Sn_DPORT, W5500_SKT_REG(skt), destPort);
+    w5500_write(Sn_DIPR,  W5500_SKT_REG(skt), destIp, 4, device);
+    w5500_write16(Sn_DPORT, W5500_SKT_REG(skt), destPort, device);
 
     // Wait for TX buffer to have space
-    while (w5500_read16(Sn_TX_FSR, W5500_SKT_REG(skt)) < len) {
+    while (w5500_read16(Sn_TX_FSR, W5500_SKT_REG(skt), device) < len) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     // Write data at TX write pointer
-    uint16_t ptr = w5500_read16(Sn_TX_WR, W5500_SKT_REG(skt));
-    w5500_write(ptr, W5500_SKT_TX(skt), data, len);
+    uint16_t ptr = w5500_read16(Sn_TX_WR, W5500_SKT_REG(skt), device);
+    w5500_write(ptr, W5500_SKT_TX(skt), data, len, device);
 
     // Advance TX write pointer and trigger send
-    w5500_write16(Sn_TX_WR, W5500_SKT_REG(skt), ptr + len);
-    w5500_write8 (Sn_CR,    W5500_SKT_REG(skt), CMD_SEND);
+    w5500_write16(Sn_TX_WR, W5500_SKT_REG(skt), ptr + len, device);
+    w5500_write8 (Sn_CR,    W5500_SKT_REG(skt), CMD_SEND, device);
 }
 
 // ── Poll and print any incoming UDP packet ────────────────────────────────────
 // W5500 UDP RX frame: 6 bytes src IP+port, 2 bytes length, then payload
-static void socket_udp_recv(uint8_t skt) {
-    uint16_t size = w5500_read16(Sn_RX_RSR, W5500_SKT_REG(skt));
+static void socket_udp_recv(uint8_t skt, spi_device_handle_t &device) {
+    uint16_t size = w5500_read16(Sn_RX_RSR, W5500_SKT_REG(skt), device);
     if (size == 0) return;
 
-    uint16_t ptr = w5500_read16(Sn_RX_RD, W5500_SKT_REG(skt));
+    uint16_t ptr = w5500_read16(Sn_RX_RD, W5500_SKT_REG(skt), device);
 
     // Read the 8-byte header: [4 src IP][2 src port][2 payload len]
     uint8_t header[8];
-    w5500_read(ptr, W5500_SKT_RX(skt), header, 8);
+    w5500_read(ptr, W5500_SKT_RX(skt), header, 8, device);
     ptr += 8;
 
     uint8_t  srcIp[4]   = { header[0], header[1], header[2], header[3] };
@@ -197,12 +198,12 @@ static void socket_udp_recv(uint8_t skt) {
 
     uint8_t payload[payloadLen + 1];
     memset(payload, 0, sizeof(payload));
-    w5500_read(ptr, W5500_SKT_RX(skt), payload, payloadLen);
+    w5500_read(ptr, W5500_SKT_RX(skt), payload, payloadLen, device);
     ptr += payloadLen;
 
     // Advance RX pointer and issue RECV
-    w5500_write16(Sn_RX_RD, W5500_SKT_REG(skt), ptr);
-    w5500_write8 (Sn_CR,    W5500_SKT_REG(skt), CMD_RECV);
+    w5500_write16(Sn_RX_RD, W5500_SKT_REG(skt), ptr, device);
+    w5500_write8 (Sn_CR,    W5500_SKT_REG(skt), CMD_RECV, device);
 
     // ESP_LOGI(TAG, "UDP from %d.%d.%d.%d:%d  [%d bytes]: %s",
     //     srcIp[0], srcIp[1], srcIp[2], srcIp[3],
@@ -215,14 +216,15 @@ static void socket_udp_recv(uint8_t skt) {
     char response[32];
     int responseLen = snprintf(response, sizeof(response), "%d * 2 = %d\n", value, result);
 
-    socket_udp_send(skt, srcIp, srcPort, (uint8_t*)response, responseLen);
+    socket_udp_send(skt, srcIp, srcPort, (uint8_t*)response, responseLen, device);
     // ESP_LOGI(TAG, "Replied: %s", response);
 }
 
 void udp_task(void *arg)
 {
     while (true) {
-        socket_udp_recv(0);
+        socket_udp_recv(0, spiDeviceExternal);
+        socket_udp_recv(0, spiDeviceInternal);
         vTaskDelay(1);
     }
 }
@@ -248,17 +250,28 @@ extern "C" void app_main(void)
     };
     spi_bus_initialize(SPI2_HOST, &busCfg, SPI_DMA_CH_AUTO);
 
-    spi_device_interface_config_t devCfg = {
+    spi_device_interface_config_t devCfgInternal = {
+        .mode             = 0,
+        .cs_ena_posttrans = 2,
+        .clock_speed_hz   = 40 * 1000 * 1000,
+        .spics_io_num     = CHIP_SELECT_W5500_0,
+        .queue_size       = 1,
+    };
+    spi_bus_add_device(SPI2_HOST, &devCfgInternal, &spiDeviceInternal);
+
+    spi_device_interface_config_t devCfgExternal = {
         .mode             = 0,
         .cs_ena_posttrans = 2,
         .clock_speed_hz   = 40 * 1000 * 1000,
         .spics_io_num     = CHIP_SELECT_W5500_1,
         .queue_size       = 1,
     };
-    spi_bus_add_device(SPI2_HOST, &devCfg, &spiDevice);
+    spi_bus_add_device(SPI2_HOST, &devCfgExternal, &spiDeviceExternal);
 
-    w5500_net_init();
-    socket_udp_open(0, 5000);   // listen on UDP port 5000
+    w5500_net_init(spiDeviceExternal);
+    w5500_net_init(spiDeviceInternal);
+    socket_udp_open(0, 5000, spiDeviceExternal);
+    socket_udp_open(0, 5000, spiDeviceInternal);
 
     xTaskCreatePinnedToCore(
         udp_task,
