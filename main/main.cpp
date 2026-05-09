@@ -204,9 +204,9 @@ static void socket_udp_recv(uint8_t skt) {
     w5500_write16(Sn_RX_RD, W5500_SKT_REG(skt), ptr);
     w5500_write8 (Sn_CR,    W5500_SKT_REG(skt), CMD_RECV);
 
-    ESP_LOGI(TAG, "UDP from %d.%d.%d.%d:%d  [%d bytes]: %s",
-        srcIp[0], srcIp[1], srcIp[2], srcIp[3],
-        srcPort, payloadLen, (char*)payload);
+    // ESP_LOGI(TAG, "UDP from %d.%d.%d.%d:%d  [%d bytes]: %s",
+    //     srcIp[0], srcIp[1], srcIp[2], srcIp[3],
+    //     srcPort, payloadLen, (char*)payload);
 
     // ── Do a simple operation: parse int, double it, send it back ────────────
     int value = atoi((char*)payload);
@@ -216,7 +216,15 @@ static void socket_udp_recv(uint8_t skt) {
     int responseLen = snprintf(response, sizeof(response), "%d * 2 = %d\n", value, result);
 
     socket_udp_send(skt, srcIp, srcPort, (uint8_t*)response, responseLen);
-    ESP_LOGI(TAG, "Replied: %s", response);
+    // ESP_LOGI(TAG, "Replied: %s", response);
+}
+
+void udp_task(void *arg)
+{
+    while (true) {
+        socket_udp_recv(0);
+        vTaskDelay(1);
+    }
 }
 
 extern "C" void app_main(void)
@@ -243,8 +251,8 @@ extern "C" void app_main(void)
     spi_device_interface_config_t devCfg = {
         .mode             = 0,
         .cs_ena_posttrans = 2,
-        .clock_speed_hz   = 20 * 1000 * 1000,
-        .spics_io_num     = CHIP_SELECT_W5500_0,
+        .clock_speed_hz   = 40 * 1000 * 1000,
+        .spics_io_num     = CHIP_SELECT_W5500_1,
         .queue_size       = 1,
     };
     spi_bus_add_device(SPI2_HOST, &devCfg, &spiDevice);
@@ -252,10 +260,15 @@ extern "C" void app_main(void)
     w5500_net_init();
     socket_udp_open(0, 5000);   // listen on UDP port 5000
 
-    while (true) {
-        socket_udp_recv(0);
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    xTaskCreatePinnedToCore(
+        udp_task,
+        "udp",
+        4096,
+        NULL,
+        10,
+        NULL,
+        1
+    );
 
     return;
 
