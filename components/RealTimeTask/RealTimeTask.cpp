@@ -98,9 +98,9 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     PID_Reg positionPID{0.0, 0.0, 0.0};
 
     int32_t rotations;
-    float angle, cumAngle, velocity;
+    float angle, cumAngle, velocity, acceleration;
     while (globalVariableManager.getVoltage() < 9000) {
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         globalVariableManager.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -162,6 +162,11 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     // Other times positive torque => negative
     // Needs to offset angleOffset by PI/2 based on sign.
 
+    LowpassFilter lowpassIa{0.001};
+    LowpassFilter lowpassIb{0.001};
+    LowpassFilter lowpassIc{0.001};
+
+    LowpassFilter lowpassAcceleration{0.001};
     LowpassFilter lowpassVelocity{0.001};
     LowpassFilter lowpassStrength{0.001};
     LowpassFilter lowpassLoopTime{0.001};
@@ -197,15 +202,17 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         int64_t startTime = esp_timer_get_time();
         iteration++;
 
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         angle -= angleOffset;
         rotations *= -1;
         angle *= -1.0f;
         cumAngle *= -1.0f;
         velocity *= -1.0f;
+        acceleration *= -1.0f;
 
         globalVariableManager.setRotations(rotations);
         lowpassVelocity.update(velocity);
+        lowpassAcceleration.update(acceleration);
         
         float elPos = angle * numPolePairs;
         while (elPos >= GlobalVariableManager::TWO_PI) { elPos -= GlobalVariableManager::TWO_PI; }
@@ -234,6 +241,9 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         float Ia = (static_cast<float>(oneshotADC.getA()) / 1000.0f - baselineAdcA) / (40.0f * 0.0035);
         float Ib = (static_cast<float>(oneshotADC.getB()) / 1000.0f - baselineAdcB) / (40.0f * 0.0035);
         float Ic = (static_cast<float>(oneshotADC.getC()) / 1000.0f - baselineAdcC) / (40.0f * 0.0035);
+        lowpassIa.update(Ia);
+        lowpassIb.update(Ib);
+        lowpassIc.update(Ic);
         // If using Ia and Ib in controller, it starts shaking like crazy.
         // I am 99% sure there is something wrong with the resulting current.
         // Either analog reading, current calculations, calibration.. idk.
@@ -307,10 +317,16 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             float floatingNumLoops = static_cast<float>(numLoops);
             float avgLoopTime = lowpassLoopTime.getValue();
             float avgVelocity = lowpassVelocity.getValue();
+            float avgAccelera = lowpassAcceleration.getValue();
             float avgStrength = lowpassStrength.getValue();
+
+            globalVariableManager.setIa(lowpassIa.getValue());
+            globalVariableManager.setIb(lowpassIb.getValue());
+            globalVariableManager.setIc(lowpassIc.getValue());
 
             globalVariableManager.setAvgLooptime(avgLoopTime);
             globalVariableManager.setAvgVelocity(avgVelocity);
+            globalVariableManager.setAvgAcceleration(avgAccelera);
             globalVariableManager.setAvgStrength(avgStrength);
             numLoops = 0;
 

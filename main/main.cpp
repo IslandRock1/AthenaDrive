@@ -99,9 +99,13 @@ extern "C" void app_main(void)
         sensorData.timestamp_ms = esp_timer_get_time();
         sensorData.position = globalVariableManager.getCumAngle();
         sensorData.velocity = velocity;
+        sensorData.acceleration = globalVariableManager.getAvgAcceleration();
         sensorData.torque = torque;
         sensorData.current = current;
         sensorData.voltage = voltage;
+        sensorData.Ia = globalVariableManager.getIa();
+        sensorData.Ib = globalVariableManager.getIb();
+        sensorData.Ic = globalVariableManager.getIc();
         sensorData.loopTimeSerial = loopTimeSerial;
         sensorData.loopTimeMotor = looptime;
         serialCom.setData(sensorData);
