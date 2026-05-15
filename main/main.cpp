@@ -62,8 +62,8 @@ extern "C" void app_main(void)
     bool state = false;
     int iteration = 0;
 
-    LowpassFilter lowpassCurrent{0.1f};
-    LowpassFilter lowpassVoltage{0.1f};
+    LowpassFilter lowpassCurrent{0.5f};
+    LowpassFilter lowpassVoltage{0.5f};
 
     while (1) {
         auto startTime = esp_timer_get_time();
@@ -99,9 +99,13 @@ extern "C" void app_main(void)
         sensorData.timestamp_ms = esp_timer_get_time();
         sensorData.position = globalVariableManager.getCumAngle();
         sensorData.velocity = velocity;
+        sensorData.acceleration = globalVariableManager.getAvgAcceleration();
         sensorData.torque = torque;
         sensorData.current = current;
         sensorData.voltage = voltage;
+        sensorData.Ia = globalVariableManager.getIa();
+        sensorData.Ib = globalVariableManager.getIb();
+        sensorData.Ic = globalVariableManager.getIc();
         sensorData.loopTimeSerial = loopTimeSerial;
         sensorData.loopTimeMotor = looptime;
         serialCom.setData(sensorData);
@@ -169,6 +173,19 @@ extern "C" void app_main(void)
 
             case 15:
                 globalVariableManager.setNumPolePairs(cmd.value0);
+                break;
+            
+            case 16:
+                globalVariableManager.setOpenLoopSpeed(cmd.value1);
+                break;
+            
+            case 17:
+                globalVariableManager.setOpenLoopStrength(cmd.value1);
+                break;
+
+            case 18:
+                globalVariableManager.setTorqueSign(cmd.value1);
+                break;
 
             default:
                 break;
@@ -178,6 +195,6 @@ extern "C" void app_main(void)
         serialCom.update();
         auto endTime = esp_timer_get_time();
         loopTimeSerial = endTime - startTime;
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(30));
     }
 }

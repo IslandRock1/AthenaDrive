@@ -8,9 +8,13 @@ struct SensorData {
 	uint32_t timestamp_ms;
 	float position;
 	float velocity;
+	float acceleration;
 	float torque;
 	float current;
 	float voltage;
+	float Ia;
+	float Ib;
+	float Ic;
 	uint32_t loopTimeMotor;
 	uint32_t loopTimeSerial;
 };
@@ -26,7 +30,8 @@ enum DrivingMode {
 	Disabled = 0,
 	Torque = 1,
 	Velocity = 2,
-	Position = 3
+	Position = 3,
+	OpenLoop = 4
 };
 
 enum CommandType {
@@ -44,5 +49,8 @@ enum CommandType {
 	PositionKi = 11,
 	PositionKd = 12,
 	DrivingModeCommand = 13,
-	SetCurrentLimit = 14
+	CurrentLimit = 14,
+	NumPolePairs = 15,
+	OpenLoopSpeed = 16,
+	OpenLoopStrength = 17
 };

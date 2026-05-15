@@ -4,6 +4,7 @@
 gptimer_handle_t timer = NULL;
 TaskHandle_t control_task_handle = NULL;
 OneshotADC oneshotADC;
+constexpr uint64_t LOOP_TIME_US = 500;
 
 void setupSPI(SpiManagerPrimary &spiManager, MotorTaskConfig config) {
     SpiConfigPrimary configPrimary = {
@@ -70,7 +71,7 @@ void initTimer(TaskHandle_t task_handle)
     gptimer_enable(timer);
 
     gptimer_alarm_config_t alarm_config = {
-        .alarm_count = 300,
+        .alarm_count = LOOP_TIME_US,
         .reload_count = 0,
         .flags = {
             .auto_reload_on_alarm = true,
@@ -97,9 +98,9 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     PID_Reg positionPID{0.0, 0.0, 0.0};
 
     int32_t rotations;
-    float angle, cumAngle, velocity;
+    float angle, cumAngle, velocity, acceleration;
     while (globalVariableManager.getVoltage() < 9000) {
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         globalVariableManager.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -107,7 +108,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     // Wait 1 second.
     for (int i = 0; i < 100; i++) {
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         globalVariableManager.setCumAngle(cumAngle);
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -149,7 +150,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     for (int i = 0; i < 10; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         numReadings += 1.0;
 
         sinSum += sin(angle);
@@ -161,15 +162,25 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     // Other times positive torque => negative
     // Needs to offset angleOffset by PI/2 based on sign.
 
-    LowpassFilter lowpassVelocity{0.001};
-    LowpassFilter lowpassStrength{0.001};
-    LowpassFilter lowpassLoopTime{0.001};
-    LowpassFilter lowpassStrengthOut{0.001};
+    LowpassFilter lowpassIa{0.01};
+    LowpassFilter lowpassIb{0.01};
+    LowpassFilter lowpassIc{0.01};
+
+    LowpassFilter lowpassAcceleration{0.01};
+    LowpassFilter lowpassVelocity{0.01};
+    LowpassFilter lowpassPosition{0.01};
+    LowpassFilter lowpassStrength{0.01};
+    LowpassFilter lowpassLoopTime{0.01};
+    LowpassFilter lowpassStrengthOut{0.01};
     static float numLoops = 0;
 
     float positionSetpoint = globalVariableManager.getPositionSetpoint();
     float velocitySetpoint = globalVariableManager.getVelocitySetpoint();
     float torqueSetpoint = globalVariableManager.getTorqueSetpoint();
+
+    float openLoopPos = 0.0f;
+    float openLoopSpeed = globalVariableManager.getOpenLoopSpeed();
+    float openLoopStrength = globalVariableManager.getOpenLoopStrength();
 
     uint32_t drivingMode = globalVariableManager.getDrivingMode();
     uint32_t updateFreqPos = globalVariableManager.getUpdateFreqPosition();
@@ -181,9 +192,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_NUM_2, true);
     bool ledState = true;
-
-    bool startupState = true;
-    float outSign = 1.0f;
+    float outSign = globalVariableManager.getTorqueSign();
 
     uint64_t iteration = 0;
     initTimer(control_task_handle);
@@ -192,15 +201,18 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         int64_t startTime = esp_timer_get_time();
         iteration++;
 
-        spiManager.encoder.update(rotations, angle, cumAngle, velocity);
+        spiManager.encoder.update(rotations, angle, cumAngle, velocity, acceleration);
         angle -= angleOffset;
         rotations *= -1;
         angle *= -1.0f;
         cumAngle *= -1.0f;
         velocity *= -1.0f;
+        acceleration *= -1.0f;
 
         globalVariableManager.setRotations(rotations);
+        lowpassPosition.update(cumAngle);
         lowpassVelocity.update(velocity);
+        lowpassAcceleration.update(acceleration);
         
         float elPos = angle * numPolePairs;
         while (elPos >= GlobalVariableManager::TWO_PI) { elPos -= GlobalVariableManager::TWO_PI; }
@@ -209,19 +221,19 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         float strength = 0.0f;
         if ((drivingMode > 2) && (iteration % updateFreqPos == 0)) {
             positionPID.setSetpoint(positionSetpoint);
-            velocitySetpoint = positionPID.update(cumAngle, static_cast<float>(updateFreqPos));
+            velocitySetpoint = positionPID.update(lowpassPosition.getValue(), static_cast<float>(updateFreqPos));
         }
 
         if ((drivingMode > 1) && (iteration % updateFreqVel == 0)) {
             velocityPID.setSetpoint(velocitySetpoint);
-            torqueSetpoint = velocityPID.update(velocity, static_cast<float>(updateFreqVel));
+            torqueSetpoint = velocityPID.update(lowpassVelocity.getValue(), static_cast<float>(updateFreqVel));
         }
 
         if ((drivingMode > 0) && (iteration % updateFreqTor == 0)) {
             strength = torqueSetpoint;
         }
 
-        if (drivingMode == 0) {
+        if (drivingMode == DrivingMode::Disabled) {
             strength = 0.0f;
         }
 
@@ -229,19 +241,32 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         float Ia = (static_cast<float>(oneshotADC.getA()) / 1000.0f - baselineAdcA) / (40.0f * 0.0035);
         float Ib = (static_cast<float>(oneshotADC.getB()) / 1000.0f - baselineAdcB) / (40.0f * 0.0035);
         float Ic = (static_cast<float>(oneshotADC.getC()) / 1000.0f - baselineAdcC) / (40.0f * 0.0035);
+        lowpassIa.update(Ia);
+        lowpassIb.update(Ib);
+        lowpassIc.update(Ic);
         // If using Ia and Ib in controller, it starts shaking like crazy.
         // I am 99% sure there is something wrong with the resulting current.
         // Either analog reading, current calculations, calibration.. idk.
 
         lowpassStrength.update(strengthOut);
 
-        Output output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
-        if (startupState) {
-            output = controller.update(10.0, elPos, velocity, 0.0, 0.0);
+        Output output{};
+        if (drivingMode == DrivingMode::OpenLoop) {
+
+            // speedScale makes the unit op openLoopSpeed to be rounds/s
+            float speedScale = 6.28f * static_cast<float>(LOOP_TIME_US) * 0.000001 * NumPolePairs;
+            openLoopPos += openLoopSpeed * speedScale;
+
+            output.phaseA = openLoopStrength * std::sin(openLoopPos);
+            output.phaseB = openLoopStrength * std::sin(openLoopPos + GlobalVariableManager::TWO_PI / 3.0f);
+            output.phaseC = openLoopStrength * std::sin(openLoopPos - GlobalVariableManager::TWO_PI / 3.0f);
+        } else if (drivingMode != DrivingMode::Disabled) {
+            output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
         }
-        
+
         float maxOut = std::max(std::abs(output.phaseA), std::max(std::abs(output.phaseB), std::abs(output.phaseC)));
         if (maxOut > 0.8) {
+            // maxOut > 0.8 => k < 1.0
             float k = 0.8 / maxOut;
             output.phaseA *= k;
             output.phaseB *= k;
@@ -254,12 +279,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
         numLoops++;
         if (numLoops == 100) {
-            if (startupState) {
-                startupState = false;
-                if (velocity < 0.0) {
-                    outSign = -1.0f;
-                }
-            }
+            numLoops = 0;
 
             drivingMode = globalVariableManager.getDrivingMode();
             if (drivingMode == DrivingMode::Position) {
@@ -268,12 +288,16 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
                 velocitySetpoint = globalVariableManager.getVelocitySetpoint();
             } else if (drivingMode == DrivingMode::Torque) {
                 torqueSetpoint = globalVariableManager.getTorqueSetpoint();
+            } else if (drivingMode == DrivingMode::OpenLoop) {
+                openLoopSpeed = globalVariableManager.getOpenLoopSpeed();
+                openLoopStrength = globalVariableManager.getOpenLoopStrength();
             } else {
                 positionSetpoint = 0.0f;
                 velocitySetpoint = 0.0f;
                 torqueSetpoint = 0.0f;
             }
 
+            outSign = globalVariableManager.getTorqueSign();
             positionPID.setKp(globalVariableManager.getPositionKp());
             positionPID.setKi(globalVariableManager.getPositionKi());
             positionPID.setKd(globalVariableManager.getPositionKd());
@@ -281,25 +305,30 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             velocityPID.setKi(globalVariableManager.getVelocityKi());
             velocityPID.setKd(globalVariableManager.getVelocityKd());
 
-            globalVariableManager.setCumAngle(cumAngle);
+            globalVariableManager.setCumAngle(lowpassPosition.getValue());
             numPolePairs = globalVariableManager.getNumPolePairs();
 
             float floatingNumLoops = static_cast<float>(numLoops);
             float avgLoopTime = lowpassLoopTime.getValue();
             float avgVelocity = lowpassVelocity.getValue();
+            float avgAccelera = lowpassAcceleration.getValue();
             float avgStrength = lowpassStrength.getValue();
+
+            globalVariableManager.setIa(lowpassIa.getValue());
+            globalVariableManager.setIb(lowpassIb.getValue());
+            globalVariableManager.setIc(lowpassIc.getValue());
 
             globalVariableManager.setAvgLooptime(avgLoopTime);
             globalVariableManager.setAvgVelocity(avgVelocity);
+            globalVariableManager.setAvgAcceleration(avgAccelera);
             globalVariableManager.setAvgStrength(avgStrength);
-            numLoops = 0;
 
             ledState = !ledState;
             gpio_set_level(GPIO_NUM_2, ledState);
 
             uint16_t address = 0x00;
             uint16_t data = 0x00;
-            spiManager.motorDriver.readRegister(address, data);
+            // spiManager.motorDriver.readRegister(address, data);
             // printf("Error register: %i\n", data);
         }
     }

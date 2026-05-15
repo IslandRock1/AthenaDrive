@@ -32,8 +32,9 @@ void SerialCom::update() {
     frame[1] = SYNC_BYTE_1;
     memcpy(frame + 2, &m_tx_data, sizeof(SensorData));
 
+    constexpr TickType_t writeBytesDelay = pdMS_TO_TICKS(5);
     int bytes_sent = usb_serial_jtag_write_bytes(
-        reinterpret_cast<const char *>(frame), sizeof(frame), portMAX_DELAY);
+        reinterpret_cast<const char *>(frame), sizeof(frame), writeBytesDelay);
     usb_serial_jtag_ll_txfifo_flush();
 
     if ((bytes_sent - 2) != sizeof(SensorData)) {

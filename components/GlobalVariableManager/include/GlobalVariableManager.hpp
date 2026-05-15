@@ -62,6 +62,16 @@ public:
     uint32_t getUpdateFreqTransmition();
     void setUpdateFreqTransmition(uint32_t value);
 
+    float getIa();
+    void setIa(float value);
+    float getIb();
+    void setIb(float value);
+    float getIc();
+    void setIc(float value);
+
+    float getTorqueSign();
+    void setTorqueSign(float value);
+
     // Torque
     float getTorqueKp();
     void setTorqueKp(float value);
@@ -107,12 +117,17 @@ public:
     uint32_t getUpdateFreqPosition();
     void setUpdateFreqPosition(uint32_t value);
 
+    float getOpenLoopSpeed();
+    void setOpenLoopSpeed(float value);
+    float getOpenLoopStrength();
+    void setOpenLoopStrength(float value);
+
     static void atomic_store_float(std::atomic_uint32_t& atomicValue, float value);
     static float atomic_load_float(std::atomic_uint32_t& atomicValue);
 
 private:
 
-    std::atomic_uint32_t _numPolePairs{7};
+    std::atomic_uint32_t _numPolePairs{15};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
     std::atomic_uint32_t _rotations{0};
@@ -133,6 +148,11 @@ private:
 
     std::atomic_uint32_t _update_freq_transmition{100};     // ms
 
+    std::atomic_uint32_t _Ia;
+    std::atomic_uint32_t _Ib;
+    std::atomic_uint32_t _Ic;
+
+    std::atomic_uint32_t _torqueSign;
     std::atomic_uint32_t _torqueKp;
     std::atomic_uint32_t _torqueKi;
     std::atomic_uint32_t _torque_setpoint{0};
@@ -149,6 +169,9 @@ private:
     std::atomic_uint32_t _positionKd;
     std::atomic_uint32_t _position_setpoint{0};
     std::atomic_uint32_t _update_freq_position{100};
+
+    std::atomic_uint32_t _openLoopSpeed;
+    std::atomic_uint32_t _openLoopStrength;
 };
 
 extern GlobalVariableManager globalVariableManager;

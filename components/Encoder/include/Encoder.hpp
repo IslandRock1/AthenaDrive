@@ -14,7 +14,7 @@ struct EncoderConfig : public SpiConfig {
 class Encoder : public BaseSPI<EncoderConfig> {
 public:
     esp_err_t begin(EncoderConfig config);
-    esp_err_t update(int32_t &rotations, float &angle, float &cumAngle, float &velocity);
+    esp_err_t update(int32_t &rotations, float &angle, float &cumAngle, float &velocity, float &acceleration);
     esp_err_t readRegister(uint16_t address, uint16_t &data) override;
     esp_err_t writeRegister(uint16_t address, uint16_t data) override;
 
@@ -24,5 +24,6 @@ private:
     int16_t _prevRaw = 0;
     int32_t _rotations = 0;
     float _prevAngleRad = 0.0f;
+    float _prevVelocity = 0.0f;
     int64_t _prevTime = 0;
 };
