@@ -17,6 +17,6 @@ private:
     float _setpoint = 0.0;
     float _integral = 0.0;
     float _prevError = 0.0;
-    float _maxOut = 100.0;
+    float _maxOut = 15.0;
     bool _firstRun = true;
 };
