@@ -124,7 +124,7 @@ public:
 
 private:
 
-    std::atomic_uint32_t _numPolePairs{7};
+    std::atomic_uint32_t _numPolePairs{15};
     std::atomic_bool _wantedCalibrationMode{false};
     std::atomic_bool _actualCalibrationMode{false};
     std::atomic_uint32_t _rotations{0};

@@ -4,7 +4,7 @@
 gptimer_handle_t timer = NULL;
 TaskHandle_t control_task_handle = NULL;
 OneshotADC oneshotADC;
-constexpr uint64_t LOOP_TIME_US = 300;
+constexpr uint64_t LOOP_TIME_US = 500;
 
 void setupSPI(SpiManagerPrimary &spiManager, MotorTaskConfig config) {
     SpiConfigPrimary configPrimary = {
@@ -143,7 +143,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     mcpwm.set_phase_voltages(0.04, -0.02, -0.02);
     // printf("Sat phase voltages.\n");
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(1000));
     float numReadings = 0.0f;
     float sinSum = 0.0f;
     float cosSum = 0.0f;
@@ -168,6 +168,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
 
     LowpassFilter lowpassAcceleration{0.01};
     LowpassFilter lowpassVelocity{0.01};
+    LowpassFilter lowpassPosition{0.01};
     LowpassFilter lowpassStrength{0.01};
     LowpassFilter lowpassLoopTime{0.01};
     LowpassFilter lowpassStrengthOut{0.01};
@@ -211,6 +212,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         acceleration *= -1.0f;
 
         globalVariableManager.setRotations(rotations);
+        lowpassPosition.update(cumAngle);
         lowpassVelocity.update(velocity);
         lowpassAcceleration.update(acceleration);
         
@@ -221,12 +223,12 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         float strength = 0.0f;
         if ((drivingMode > 2) && (iteration % updateFreqPos == 0)) {
             positionPID.setSetpoint(positionSetpoint);
-            velocitySetpoint = positionPID.update(cumAngle, static_cast<float>(updateFreqPos));
+            velocitySetpoint = positionPID.update(lowpassPosition.getValue(), static_cast<float>(updateFreqPos));
         }
 
         if ((drivingMode > 1) && (iteration % updateFreqVel == 0)) {
             velocityPID.setSetpoint(velocitySetpoint);
-            torqueSetpoint = velocityPID.update(velocity, static_cast<float>(updateFreqVel));
+            torqueSetpoint = velocityPID.update(lowpassVelocity.getValue(), static_cast<float>(updateFreqVel));
         }
 
         if ((drivingMode > 0) && (iteration % updateFreqTor == 0)) {
@@ -317,7 +319,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             velocityPID.setKi(globalVariableManager.getVelocityKi());
             velocityPID.setKd(globalVariableManager.getVelocityKd());
 
-            globalVariableManager.setCumAngle(cumAngle);
+            globalVariableManager.setCumAngle(lowpassPosition.getValue());
             numPolePairs = globalVariableManager.getNumPolePairs();
 
             float floatingNumLoops = static_cast<float>(numLoops);
