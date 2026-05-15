@@ -183,6 +183,10 @@ extern "C" void app_main(void)
                 globalVariableManager.setOpenLoopStrength(cmd.value1);
                 break;
 
+            case 18:
+                globalVariableManager.setTorqueSign(cmd.value1);
+                break;
+
             default:
                 break;
             }

@@ -192,9 +192,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_NUM_2, true);
     bool ledState = true;
-
-    bool startupState = true;
-    float outSign = 1.0f;
+    float outSign = globalVariableManager.getTorqueSign();
 
     uint64_t iteration = 0;
     initTimer(control_task_handle);
@@ -253,14 +251,6 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         lowpassStrength.update(strengthOut);
 
         Output output{};
-        if (drivingMode != DrivingMode::Disabled) {
-            output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
-        }
-        
-        if (startupState) {
-            output = controller.update(10.0, elPos, 0.0, 0.0, 0.0);
-        }
-        
         if (drivingMode == DrivingMode::OpenLoop) {
 
             // speedScale makes the unit op openLoopSpeed to be rounds/s
@@ -270,6 +260,8 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
             output.phaseA = openLoopStrength * std::sin(openLoopPos);
             output.phaseB = openLoopStrength * std::sin(openLoopPos + GlobalVariableManager::TWO_PI / 3.0f);
             output.phaseC = openLoopStrength * std::sin(openLoopPos - GlobalVariableManager::TWO_PI / 3.0f);
+        } else if (drivingMode != DrivingMode::Disabled) {
+            output = controller.update(strengthOut * outSign, elPos, velocity, 0.0, 0.0);
         }
 
         float maxOut = std::max(std::abs(output.phaseA), std::max(std::abs(output.phaseB), std::abs(output.phaseC)));
@@ -289,13 +281,6 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
         if (numLoops == 100) {
             numLoops = 0;
 
-            if (startupState) {
-                startupState = false;
-                if (velocity < 0.0) {
-                    outSign = -1.0f;
-                }
-            }
-
             drivingMode = globalVariableManager.getDrivingMode();
             if (drivingMode == DrivingMode::Position) {
                 positionSetpoint = globalVariableManager.getPositionSetpoint();
@@ -312,6 +297,7 @@ void IRAM_ATTR realTimeTask(void *pvParameters) {
                 torqueSetpoint = 0.0f;
             }
 
+            outSign = globalVariableManager.getTorqueSign();
             positionPID.setKp(globalVariableManager.getPositionKp());
             positionPID.setKi(globalVariableManager.getPositionKi());
             positionPID.setKd(globalVariableManager.getPositionKd());

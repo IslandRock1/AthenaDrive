@@ -4,6 +4,7 @@
 GlobalVariableManager globalVariableManager;
 
 GlobalVariableManager::GlobalVariableManager() {
+    atomic_store_float(_torqueSign, 1.0f);
     atomic_store_float(_torqueKp, 0.0f);
     atomic_store_float(_torqueKi, 0.0f);
     atomic_store_float(_velocityKp, 0.0f);
@@ -182,6 +183,18 @@ float GlobalVariableManager::getIc() {
 }
 void GlobalVariableManager::setIc(float value) {
     atomic_store_float(_Ic, value);
+}
+
+float GlobalVariableManager::getTorqueSign() {
+    return atomic_load_float(_torqueSign);
+}
+
+void GlobalVariableManager::setTorqueSign(float value) {
+    if (value < 0.0f) {
+        atomic_store_float(_torqueSign, -1.0f);
+    } else {
+        atomic_store_float(_torqueSign, 1.0f);
+    }
 }
 
 // Torque

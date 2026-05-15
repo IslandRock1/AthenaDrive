@@ -69,6 +69,9 @@ public:
     float getIc();
     void setIc(float value);
 
+    float getTorqueSign();
+    void setTorqueSign(float value);
+
     // Torque
     float getTorqueKp();
     void setTorqueKp(float value);
@@ -149,6 +152,7 @@ private:
     std::atomic_uint32_t _Ib;
     std::atomic_uint32_t _Ic;
 
+    std::atomic_uint32_t _torqueSign;
     std::atomic_uint32_t _torqueKp;
     std::atomic_uint32_t _torqueKi;
     std::atomic_uint32_t _torque_setpoint{0};
